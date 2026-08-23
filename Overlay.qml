@@ -94,6 +94,7 @@ Item {
       service.surfaceOpened()
       if (service.samplerState === "missing") service.startSampler()
     }
+    forceReorder = true
     rebuild()
     if (rows.count > 0 && !cursorApp) moveCursor(1)
     Qt.callLater(function() {
@@ -122,8 +123,16 @@ Item {
 
   function rowKey(r) { return r.type === "header" ? "h:" + r.section : r.app.id }
 
+  // Rows reorder at most every two seconds so the list reads as "the culprit
+  // rose", not as jitter. Values still update on every tick.
+  property double lastReorderMs: 0
+  property bool forceReorder: false
+
   function rebuild() {
     if (!service) return
+    var now = Date.now()
+    var allowMove = forceReorder || (now - lastReorderMs > 2000)
+    forceReorder = false
     var desired = Model.sections(service.apps, service.pins, filter, sortKey, collapsed)
     var want = {}
     for (var d = 0; d < desired.length; d++) want[rowKey(desired[d])] = true
@@ -139,13 +148,12 @@ Item {
         appId: r.type === "app" ? r.app.id : ""
       }
       var j = -1
-      for (var s = t; s < rows.count; s++) if (rows.get(s).key === key) { j = s; break }
+      for (var s = 0; s < rows.count; s++) if (rows.get(s).key === key) { j = s; break }
       if (j === -1) rows.insert(t, entry)
-      else {
-        if (j !== t) rows.move(j, t, 1)
-        rows.set(t, entry)
-      }
+      else if (j !== t && allowMove) { rows.move(j, t, 1); rows.set(t, entry) }
+      else rows.set(j, entry)
     }
+    if (allowMove) lastReorderMs = now
 
     // Keep the cursor on the same row when the list reorders under it.
     if (cursorKey) {
@@ -168,9 +176,9 @@ Item {
   }
   Timer { id: toastTimer; interval: 3000; onTriggered: root.toast = "" }
 
-  onFilterChanged: { rebuild(); firstApp() }
-  onSortKeyChanged: rebuild()
-  onCollapsedChanged: rebuild()
+  onFilterChanged: { forceReorder = true; rebuild(); firstApp() }
+  onSortKeyChanged: { forceReorder = true; rebuild() }
+  onCollapsedChanged: { forceReorder = true; rebuild() }
 
   // ---- Cursor --------------------------------------------------------------
   function clampCursor() {
