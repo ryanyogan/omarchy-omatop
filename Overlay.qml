@@ -153,6 +153,19 @@ Item {
     var allowMove = forceReorder || (now - lastReorderMs > 2000)
     forceReorder = false
     var desired = Model.sections(service.apps, service.offenders, service.pins, filter, sortKey, collapsed)
+    // Two rows must never share a key: the keyed diff below moves rows by
+    // index, and a duplicate makes it move on a stale index, writing one
+    // row's identity onto another. Drop later occurrences rather than
+    // corrupt the model.
+    var seen = {}
+    var unique = []
+    for (var u = 0; u < desired.length; u++) {
+      var uk = rowKey(desired[u])
+      if (seen[uk]) continue
+      seen[uk] = true
+      unique.push(desired[u])
+    }
+    desired = unique
     scales = Model.scales(desired)
     var want = {}
     for (var d = 0; d < desired.length; d++) want[rowKey(desired[d])] = true
@@ -206,7 +219,9 @@ Item {
   }
   Timer { id: toastTimer; interval: 3000; onTriggered: root.toast = "" }
 
-  onFilterChanged: { forceReorder = true; rebuild(); firstApp() }
+  // The ListView lays the new row set out on the next frame; positioning the
+  // view inside the same call as the model edits lands it mid-row.
+  onFilterChanged: { forceReorder = true; rebuild(); Qt.callLater(firstApp) }
   onSortKeyChanged: { forceReorder = true; rebuild() }
   onCollapsedChanged: { forceReorder = true; rebuild() }
 
@@ -217,10 +232,14 @@ Item {
     cursorKey = rows.get(cursorIndex).key
   }
 
-  function setCursor(i) {
+  function setCursor(i, fromPointer) {
     if (rows.count === 0) return
     cursorIndex = Util.clamp(i, 0, rows.count - 1)
     cursorKey = rows.get(cursorIndex).key
+    // A keyboard move hands the cursor to the keyboard; without this a 1 px
+    // mouse twitch steals it straight back. Pointer-driven moves skip the
+    // reset -- it would turn the gate's next sample into a seed and drop it.
+    if (!fromPointer) pointerGate.reset()
     // The first App sits under the first header; keep that header in view.
     if (cursorIndex <= 1) list.positionViewAtBeginning()
     else list.positionViewAtIndex(cursorIndex, ListView.Contain)
@@ -878,10 +897,14 @@ Item {
             Text {
               anchors.left: parent.left
               anchors.leftMargin: Style.spacing.rowPaddingX
+              anchors.right: columnLabels.left
+              anchors.rightMargin: Style.space(14)
+              elide: Text.ElideRight
               text: "Offenders are the top " + (root.service ? root.service.offenderCpuCount : 10) + " by average cpu and top " + (root.service ? root.service.offenderMemCount : 6) + " by memory over 30 s, listed alphabetically"
               color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption
             }
             Row {
+              id: columnLabels
               anchors.right: parent.right
               anchors.rightMargin: Style.spacing.rowPaddingX
               spacing: Style.space(14)
@@ -921,12 +944,17 @@ Item {
               required property string appId
               width: list.width
               sourceComponent: type === "header" ? headerRow : appRow
-              height: item ? item.implicitHeight : Style.space(36)
+              // Right on the frame the delegate is created: the Loader has not
+              // loaded `item` yet when this first evaluates, and a placeholder
+              // height stacks every following row a few pixels out. Search
+              // recreates the whole visible set on every keystroke.
+              readonly property int headerHeight: Style.space(index === 0 ? 26 : 32)
+              height: type === "header" ? headerHeight : (item ? item.implicitHeight : Style.space(36))
 
               Component {
                 id: headerRow
                 Item {
-                  implicitHeight: Style.space(rowLoader.index === 0 ? 26 : 32)
+                  implicitHeight: rowLoader.headerHeight
                   Text {
                     anchors.left: parent.left
                     anchors.leftMargin: Style.spacing.rowPaddingX
@@ -972,10 +1000,10 @@ Item {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onPositionChanged: function(mouse) {
                       if (!pointerGate.moved(parent, mouse)) return
-                      root.setCursor(rowLoader.index)
+                      root.setCursor(rowLoader.index, true)
                     }
                     onClicked: function(mouse) {
-                      root.setCursor(rowLoader.index)
+                      root.setCursor(rowLoader.index, true)
                       if (mouse.button === Qt.RightButton) root.toggleExpand(root.cursorApp)
                       else root.focusDetail(root.cursorApp)
                     }

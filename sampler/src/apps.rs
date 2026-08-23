@@ -780,13 +780,28 @@ impl Grouper {
             members.entry(root).or_default().insert(&p.cgroup);
         }
 
-        for (cg, idx) in by_cgroup {
+        // Two cgroups can name one unit: a delegated service keeps processes in
+        // its own cgroup and in children (`systemd-udevd.service` and its `udev`
+        // subtree), and a slice under `user@N.service` resolves to the manager
+        // itself. One id is one App -- two Apps sharing an id collide in
+        // `targets`, double-count in the history, and give the overlay two rows
+        // with the same key. Shallowest cgroup names the App.
+        let mut entries: Vec<(&str, Vec<usize>)> = by_cgroup.into_iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        let mut by_id: HashMap<String, usize> = HashMap::new();
+        for (cg, idx) in entries {
             let class = proc::classify(cg);
             let id = if class.unit.is_empty() {
                 format!("cgroup:{cg}")
             } else {
                 proc::app_id(&class.unit, class.user_unit)
             };
+            if let Some(&g) = by_id.get(&id) {
+                groups[g].pids.extend(idx);
+                groups[g].cgroups.push(cg.to_string());
+                continue;
+            }
+            by_id.insert(id.clone(), groups.len());
             // The naming cgroup first; the rest in a stable order.
             let mut cgroups = vec![cg.to_string()];
             if let Some(m) = members.get(cg) {

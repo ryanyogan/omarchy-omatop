@@ -38,7 +38,9 @@ Item {
   readonly property int iconSize: Style.space(18)
 
   implicitHeight: rowHeight + (expanded ? procList.height + Style.space(6) : 0)
-  Behavior on implicitHeight { enabled: root.animated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+  // No easing on the row height: the ListView stacks the next row from this
+  // value, so an animated height draws every row below at a stale position.
+  // The process list still fades in (procList opacity).
   clip: true
 
   readonly property bool paused: app && app.state === "paused"
