@@ -15,7 +15,7 @@ Vocabulary is defined in `CONTEXT.md`. Field names below use it.
 | `stop <appId>` | Stop: SIGTERM every Process, SIGKILL survivors after 5 s. For systemd units use `systemctl [--user] stop`. |
 | `pause <appId>` | Units: `systemctl [--user] freeze <unit>` (cgroup freezer, atomic). Jobs: SIGSTOP the process group. |
 | `resume <appId>` | Units: `systemctl [--user] thaw <unit>`. Jobs: SIGCONT. |
-| `restart <appId>` | Services only: `systemctl [--user] restart <unit>`. |
+| `restart <appId>` | `.service` units (user or system): `systemctl [--user] restart <unit>`. A `.scope` has no `ExecStart` and cannot be restarted. |
 | `fds <on|off>` | enable the per-pid fd scan (Ports + GPU per App). Default on. |
 
 Actions reply on the next tick via `events: [{ "type": "action", "id", "action", "ok": bool, "error"?: string }]`.

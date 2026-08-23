@@ -601,6 +601,32 @@ pub fn cgroup_frozen(cgroup: &str) -> Option<bool> {
     Some(proc::read_small(&path, &mut buf)?.trim() == "1")
 }
 
+/// Cumulative CPU time charged to a cgroup, in microseconds.
+///
+/// Better than summing `/proc/<pid>/stat` in two ways that matter for a
+/// diagnostic tool: it is microseconds rather than 10 ms jiffies, and it counts
+/// processes that lived and died *between* two ticks. A build that spawns a
+/// thousand short-lived compilers is invisible to a once-a-second pid walk and
+/// obvious here.
+pub fn cgroup_cpu_usec(cgroup: &str) -> Option<u64> {
+    let mut buf = [0u8; 256];
+    let path = format!("/sys/fs/cgroup{}/cpu.stat", cgroup);
+    let text = proc::read_small(&path, &mut buf)?;
+    text.lines().find_map(|l| l.strip_prefix("usage_usec ")?.trim().parse().ok())
+}
+
+/// Memory charged to a cgroup, in bytes.
+///
+/// Summing per-process RSS counts every shared page once per process: on this
+/// machine Chromium's RSS sum reads 367 MB against a real 203 MB, because forty
+/// processes share one copy of the binary and its libraries. The cgroup counts
+/// each page once, which is the number the user is actually asking about.
+pub fn cgroup_memory_current(cgroup: &str) -> Option<u64> {
+    let mut buf = [0u8; 32];
+    let path = format!("/sys/fs/cgroup{}/memory.current", cgroup);
+    proc::read_small(&path, &mut buf)?.trim().parse().ok()
+}
+
 /// A cgroup's IO pressure (`some avg10`), used to pick the Culprit when IO is
 /// what is hurting. Read only for that case, never on every tick.
 pub fn cgroup_io_pressure(cgroup: &str) -> Option<f64> {
@@ -654,6 +680,7 @@ pub struct Grouper {
     pub fds: FdScanner,
     prev_ticks: HashMap<i32, u64>,
     prev_gpu: HashMap<u64, u64>,
+    prev_cg_cpu: HashMap<String, u64>,
 }
 
 impl Default for Grouper {
@@ -669,6 +696,7 @@ impl Grouper {
             fds: FdScanner::new(),
             prev_ticks: HashMap::new(),
             prev_gpu: HashMap::new(),
+            prev_cg_cpu: HashMap::new(),
         }
     }
 
@@ -718,7 +746,12 @@ impl Grouper {
                 read_only: false,
                 tty: proc::tty_name(leader.tty_nr),
                 leader_pid: Some(leader.pid),
-                cgroups: vec![leader.cgroup.to_string()],
+                // Deliberately empty. A Job has no cgroup of its own -- it
+                // lives inside the terminal's -- so borrowing the terminal's
+                // would make Pause freeze the whole terminal and Stop take down
+                // the shell the user is typing into. Jobs are driven by signals
+                // to their process group, which is exactly what a shell does.
+                cgroups: Vec::new(),
                 pids: idx,
             });
         }
@@ -792,13 +825,22 @@ impl Grouper {
         }
 
         // --- Materialise ----------------------------------------------------
+        // Cgroups that lost processes to a Job. Their cgroup counters still
+        // include those processes, so those Apps must stay on per-pid
+        // accounting or the terminal would be charged twice for its Jobs.
+        let job_cgroups: HashSet<&str> = procs
+            .iter()
+            .filter(|p| claimed.contains(&p.pid))
+            .map(|p| &*p.cgroup)
+            .collect();
+
         let capacity = ctx.interval * ctx.clk_tck as f64 * ctx.ncpu as f64;
         let mut apps = Vec::with_capacity(groups.len());
         let mut detail_rows = Vec::new();
         let mut next_gpu: HashMap<u64, u64> = HashMap::new();
 
         for g in groups {
-            let app = self.materialise(procs, &g, ctx, capacity, &mut next_gpu, cache);
+            let app = self.materialise(procs, &g, ctx, capacity, &mut next_gpu, cache, &job_cgroups);
             if ctx.detail == Some(app.id.as_str()) {
                 detail_rows = self.detail_rows(procs, &g, capacity, ctx, cache);
             }
@@ -812,6 +854,8 @@ impl Grouper {
         // table every second.
         self.prev_ticks.clear();
         self.prev_ticks.extend(procs.iter().map(|p| (p.pid, p.cpu_ticks)));
+        let live_ids: HashSet<&str> = apps.iter().map(|a| a.id.as_str()).collect();
+        self.prev_cg_cpu.retain(|id, _| live_ids.contains(id.as_str()));
 
         apps.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
         (apps, detail_rows)
@@ -825,6 +869,7 @@ impl Grouper {
         capacity: f64,
         next_gpu: &mut HashMap<u64, u64>,
         cache: &mut StaticCache,
+        job_cgroups: &HashSet<&str>,
     ) -> App {
         let mut cpu_ticks = 0u64;
         let mut rss_pages = 0u64;
@@ -876,6 +921,36 @@ impl Grouper {
         let started = ctx.btime + oldest / ctx.clk_tck.max(1);
         ports.sort_unstable();
         ports.dedup();
+
+        // Prefer the kernel's own per-cgroup accounting when this App owns its
+        // cgroups outright. Falls back to the per-pid sums whenever anything is
+        // unreadable or a Job was carved out of the cgroup, so the numbers are
+        // never a mix of the two for one App.
+        let cgroup_owned =
+            !g.cgroups.is_empty() && !g.cgroups.iter().any(|c| job_cgroups.contains(c.as_str()));
+        let mut cpu_pct = if capacity > 0.0 { cpu_ticks as f64 / capacity * 100.0 } else { 0.0 };
+        let mut mem_bytes = rss_pages * ctx.page_size;
+        if cgroup_owned {
+            let usec: Option<u64> = g
+                .cgroups
+                .iter()
+                .map(|c| cgroup_cpu_usec(c))
+                .try_fold(0u64, |acc, v| v.map(|v| acc + v));
+            let mem: Option<u64> = g
+                .cgroups
+                .iter()
+                .map(|c| cgroup_memory_current(c))
+                .try_fold(0u64, |acc, v| v.map(|v| acc + v));
+            if let (Some(usec), Some(mem)) = (usec, mem) {
+                let prev = self.prev_cg_cpu.get(&g.id).copied().unwrap_or(usec);
+                let denom = ctx.interval * 1e6 * ctx.ncpu as f64;
+                if denom > 0.0 {
+                    cpu_pct = usec.saturating_sub(prev) as f64 / denom * 100.0;
+                }
+                mem_bytes = mem;
+                self.prev_cg_cpu.insert(g.id.clone(), usec);
+            }
+        }
 
         let (name, icon, tag) = self.identify(g, leader);
 
@@ -931,8 +1006,8 @@ impl Grouper {
             cmd: proc::truncate_chars(&cache.cmdline(leader.pid, leader.start_ticks), MAX_CMD_CHARS),
             unit: g.unit.clone(),
             user_unit: g.user_unit,
-            cpu: crate::vitals::round1(if capacity > 0.0 { cpu_ticks as f64 / capacity * 100.0 } else { 0.0 }),
-            mem: rss_pages * ctx.page_size,
+            cpu: crate::vitals::round1(cpu_pct),
+            mem: mem_bytes,
             gpu,
             nproc: g.pids.len(),
             pids,
@@ -1017,6 +1092,65 @@ impl Grouper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CHROME_BROWSER: &str = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.chromium.Chromium-3808.scope";
+    const CHROME_CHILDREN: &str = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-graphical.slice/app-Hyprland-chromium-e1bdd203.scope";
+    const INIT: &str = "/user.slice/user-1000.slice/user@1000.service/init.scope";
+    const COMPOSITOR: &str = "/user.slice/user-1000.slice/user@1000.service/session.slice/wayland-wm@hyprland.desktop.service";
+    const UDISKIE: &str = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-graphical.slice/app-Hyprland-udiskie-1ce1af6d.scope";
+
+    #[test]
+    fn chromiums_two_scopes_coalesce() {
+        // The renderers' scope merges into the browser's, because 3827's parent
+        // is 3808. Without this, Stop on the half named `chromium` kills
+        // eighteen renderers and leaves the window standing.
+        assert!(coalescable(CHROME_CHILDREN, CHROME_BROWSER));
+    }
+
+    #[test]
+    fn coalescing_does_not_swallow_the_machine() {
+        // Every system service's main process is parented by systemd in
+        // init.scope. An unguarded parent-in-another-cgroup rule would merge
+        // all of them into one App.
+        assert!(!coalescable(CHROME_CHILDREN, INIT));
+        assert!(!coalescable("/system.slice/tailscaled.service", "/init.scope"));
+        // The compositor is parented by a scope under app.slice on this box.
+        // Merging the desktop into udiskie would be absurd.
+        assert!(!coalescable(COMPOSITOR, UDISKIE));
+        assert!(!coalescable(UDISKIE, COMPOSITOR));
+        // A docker container scope under system.slice stays its own App.
+        assert!(!coalescable(
+            "/system.slice/docker-8cd099f8.scope",
+            "/system.slice/containerd.service"
+        ));
+        // And nothing merges into itself.
+        assert!(!coalescable(CHROME_BROWSER, CHROME_BROWSER));
+    }
+
+    #[test]
+    fn merge_chains_resolve_and_cycles_terminate() {
+        let mut m = HashMap::new();
+        m.insert("c".to_string(), "b".to_string());
+        m.insert("b".to_string(), "a".to_string());
+        assert_eq!(resolve_merge(&m, "c"), "a");
+        assert_eq!(resolve_merge(&m, "a"), "a");
+        assert_eq!(resolve_merge(&m, "unknown"), "unknown");
+
+        // Two scopes each parenting a process in the other must not hang the tick.
+        let mut cyc = HashMap::new();
+        cyc.insert("x".to_string(), "y".to_string());
+        cyc.insert("y".to_string(), "x".to_string());
+        let _ = resolve_merge(&cyc, "x");
+    }
+
+    #[test]
+    fn the_merged_app_is_named_from_the_parent_scope() {
+        // The parent scope carries the Desktop ID, which is what finds
+        // chromium.desktop and gives the App its name, icon and Browser tag.
+        // The child scope's token is the launcher's argv[0].
+        assert_eq!(scope_token("app-org.chromium.Chromium-3808.scope"), "org.chromium.Chromium");
+        assert_eq!(scope_token("app-Hyprland-chromium-e1bdd203.scope"), "chromium");
+    }
 
     #[test]
     fn extracts_tokens_from_real_scope_names() {

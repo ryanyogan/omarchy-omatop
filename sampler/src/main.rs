@@ -550,65 +550,87 @@ mod tests {
 
     #[test]
     fn an_idle_machine_is_calm_with_no_culprit() {
-        let p = pressure(&psi(0.0, 0.0, 0.0), Some(45.0), 0, 0);
+        let p = pressure(&psi(0.0, 0.0, 0.0), Some(45.0), 0.0);
         assert_eq!(p.level, "calm");
         assert_eq!(p.score, 0.0);
-        assert_eq!(p.reason, "Calm");
+        assert_eq!(p.reason, "calm");
         assert_eq!(culprit(&[], &p), None);
     }
 
     #[test]
     fn cpu_stall_crosses_busy_at_21_percent() {
         // 0.35 * 60 = 21
-        assert_eq!(pressure(&psi(20.0, 0.0, 0.0), None, 0, 0).level, "calm");
-        let p = pressure(&psi(21.0, 0.0, 0.0), None, 0, 0);
+        assert_eq!(pressure(&psi(20.0, 0.0, 0.0), None, 0.0).level, "calm");
+        let p = pressure(&psi(21.0, 0.0, 0.0), None, 0.0);
         assert_eq!(p.level, "busy");
-        assert_eq!(p.reason, "CPU stall 21%");
+        assert_eq!(p.reason, "cpu stall 21%");
     }
 
     #[test]
     fn cpu_stall_crosses_critical_at_54_percent() {
-        assert_eq!(pressure(&psi(53.0, 0.0, 0.0), None, 0, 0).level, "busy");
-        assert_eq!(pressure(&psi(54.0, 0.0, 0.0), None, 0, 0).level, "critical");
+        assert_eq!(pressure(&psi(53.0, 0.0, 0.0), None, 0.0).level, "busy");
+        assert_eq!(pressure(&psi(54.0, 0.0, 0.0), None, 0.0).level, "critical");
     }
 
     #[test]
     fn the_dominant_term_names_the_reason() {
         // Memory stalls are weighted ten times harder than IO, so a smaller
         // number wins.
-        let p = pressure(&psi(10.0, 5.0, 20.0), Some(60.0), 0, 0);
-        assert_eq!(p.reason, "Memory stall 5%");
+        let p = pressure(&psi(10.0, 5.0, 20.0), Some(60.0), 0.0);
+        assert_eq!(p.reason, "memory stall");
+        assert_eq!(p.term, Term::Memory);
         assert!((p.score - 0.5).abs() < 1e-9);
 
-        let p = pressure(&psi(10.0, 0.0, 30.0), None, 0, 0);
-        assert_eq!(p.reason, "IO stall 30%");
+        let p = pressure(&psi(10.0, 0.0, 30.0), None, 0.0);
+        assert_eq!(p.reason, "io stall");
+        assert_eq!(p.term, Term::Io);
     }
 
     #[test]
-    fn heat_only_counts_above_70c() {
-        assert_eq!(pressure(&psi(0.0, 0.0, 0.0), Some(70.0), 0, 0).score, 0.0);
-        let p = pressure(&psi(0.0, 0.0, 0.0), Some(88.0), 0, 0);
-        assert_eq!(p.reason, "CPU 88\u{b0}C");
-        assert_eq!(p.level, "critical"); // (88-70)/20 = 0.9
+    fn a_hot_cpu_is_never_a_reason_on_its_own() {
+        // This laptop idles in the 50s and touches 95 C on any boost. Under the
+        // old raw-temperature term it read `critical` while doing nothing,
+        // which trained the user to ignore the bar.
+        for temp in [70.0, 88.0, 95.0, 105.0] {
+            let p = pressure(&psi(0.0, 0.0, 0.0), Some(temp), 0.0);
+            assert_eq!(p.level, "calm", "{temp} C alone must not be pressure");
+            assert_eq!(p.score, 0.0);
+            assert_eq!(p.reason, "calm");
+        }
+    }
+
+    #[test]
+    fn throttling_amplifies_a_real_stall() {
+        // Below the throttle point the score is the raw term.
+        let cool = pressure(&psi(30.0, 0.0, 0.0), Some(80.0), 0.0);
+        assert_eq!(cool.score, 0.5);
+        // At the throttle point the same stall hurts more, but the reason still
+        // names the stall, not the heat.
+        let hot = pressure(&psi(30.0, 0.0, 0.0), Some(95.0), 0.0);
+        assert_eq!(hot.score, 0.65);
+        assert_eq!(hot.reason, "cpu stall 30%");
+    }
+
+    #[test]
+    fn swapping_is_measured_by_rate_not_by_how_full_swap_is() {
+        // A zram box sits with swap permanently non-zero and nothing wrong.
+        assert_eq!(pressure(&psi(0.0, 0.0, 0.0), None, 0.0).level, "calm");
+        // Actually faulting pages back in is what costs the user time.
+        let p = pressure(&psi(0.0, 0.0, 0.0), None, 1800.0);
+        assert_eq!(p.reason, "swapping");
+        assert_eq!(p.term, Term::Swapping);
+        assert_eq!(p.level, "critical"); // 1800/2000 = 0.9
     }
 
     #[test]
     fn a_missing_sensor_never_contributes() {
-        // No temperature reading and no swap device must not fabricate pressure.
-        let p = pressure(&psi(0.0, 0.0, 0.0), None, 0, 0);
+        let p = pressure(&psi(0.0, 0.0, 0.0), None, 0.0);
         assert_eq!(p.score, 0.0);
     }
 
     #[test]
-    fn full_swap_is_critical() {
-        let p = pressure(&psi(0.0, 0.0, 0.0), None, 8 << 30, 8 << 30);
-        assert_eq!(p.reason, "Swap 100%");
-        assert_eq!(p.level, "critical");
-    }
-
-    #[test]
     fn score_is_capped_at_one_and_a_half() {
-        let p = pressure(&psi(100.0, 100.0, 100.0), Some(110.0), 0, 0);
+        let p = pressure(&psi(100.0, 100.0, 100.0), Some(110.0), 100000.0);
         assert_eq!(p.score, 1.5);
     }
 
@@ -636,28 +658,47 @@ mod tests {
             tty: String::new(),
             read_only: false,
             all_pids: vec![1],
+            all_units: vec![],
+            cgroups: vec![],
         }
     }
 
     #[test]
     fn culprit_follows_cpu_when_cpu_is_the_problem() {
         let apps = [app("scope:a", "apps", 90.0, 1), app("scope:b", "apps", 5.0, 9_000)];
-        let p = pressure(&psi(40.0, 0.0, 0.0), None, 0, 0);
+        let p = pressure(&psi(40.0, 0.0, 0.0), None, 0.0);
         assert_eq!(culprit(&apps, &p), Some("scope:a"));
     }
 
     #[test]
     fn culprit_follows_memory_when_memory_is_the_problem() {
         let apps = [app("scope:a", "apps", 90.0, 1), app("scope:b", "apps", 5.0, 9_000)];
-        let p = pressure(&psi(0.0, 6.0, 0.0), None, 0, 0);
+        let p = pressure(&psi(0.0, 6.0, 0.0), None, 0.0);
         assert_eq!(culprit(&apps, &p), Some("scope:b"));
+    }
+
+    #[test]
+    fn culprit_follows_memory_while_swapping_too() {
+        // The App burning CPU while the machine thrashes is the victim.
+        let apps = [app("scope:a", "apps", 90.0, 1), app("scope:b", "apps", 5.0, 9_000)];
+        let p = pressure(&psi(0.0, 0.0, 0.0), None, 1500.0);
+        assert_eq!(culprit(&apps, &p), Some("scope:b"));
+    }
+
+    #[test]
+    fn io_culprit_falls_back_to_cpu_when_no_cgroup_answers() {
+        // These fixtures have no cgroup paths, so io.pressure is unreadable.
+        let apps = [app("scope:a", "apps", 90.0, 1), app("scope:b", "apps", 5.0, 9_000)];
+        let p = pressure(&psi(0.0, 0.0, 30.0), None, 0.0);
+        assert_eq!(p.term, Term::Io);
+        assert_eq!(culprit(&apps, &p), Some("scope:a"));
     }
 
     #[test]
     fn kernel_is_never_the_culprit() {
         // Kernel threads cannot be acted on, so naming them helps nobody.
         let apps = [app("kernel", "kernel", 99.0, 0), app("scope:a", "apps", 3.0, 0)];
-        let p = pressure(&psi(40.0, 0.0, 0.0), None, 0, 0);
+        let p = pressure(&psi(40.0, 0.0, 0.0), None, 0.0);
         assert_eq!(culprit(&apps, &p), Some("scope:a"));
     }
 

@@ -321,10 +321,10 @@ mod tests {
     fn target(id: &str) -> Target {
         Target {
             id: id.into(),
-            unit: String::new(),
+            units: vec![],
             user_unit: false,
-            is_service: false,
             read_only: false,
+            is_job: false,
             pids: vec![],
             pgid: None,
         }
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn restart_is_services_only() {
+    fn restart_is_refused_for_jobs() {
         let mut a = Actions::new();
         let e = a.dispatch("restart", target("job:500:1787499744")).unwrap();
         assert!(!e.ok);
@@ -369,6 +369,77 @@ mod tests {
         let mut a = Actions::new();
         let e = a.dispatch("obliterate", target("scope:x")).unwrap();
         assert!(!e.ok);
+    }
+
+    #[test]
+    fn a_coalesced_app_stops_its_child_scope_before_its_parent() {
+        // Chromium: the browser scope names the App and must die last, or the
+        // user is left with a window full of crashed tabs.
+        let mut t = target("scope:app-org.chromium.Chromium-3808.scope");
+        t.units = vec![
+            "app-org.chromium.Chromium-3808.scope".into(),
+            "app-Hyprland-chromium-e1bdd203.scope".into(),
+        ];
+        assert_eq!(
+            t.ordered(),
+            vec![
+                "app-Hyprland-chromium-e1bdd203.scope".to_string(),
+                "app-org.chromium.Chromium-3808.scope".to_string()
+            ]
+        );
+        assert_eq!(t.primary(), "app-org.chromium.Chromium-3808.scope");
+    }
+
+    #[test]
+    fn restart_needs_a_service_unit_not_a_scope() {
+        let mut a = Actions::new();
+        // A scope has no ExecStart; systemd cannot restart it.
+        let mut scope = target("scope:app-Hyprland-chromium-e1bdd203.scope");
+        scope.units = vec!["app-Hyprland-chromium-e1bdd203.scope".into()];
+        let e = a.dispatch("restart", scope).unwrap();
+        assert!(!e.ok);
+        // A `.service` is restartable wherever it is bucketed -- including the
+        // Apps bucket, where autostarted units live.
+        let mut svc = target("scope:app-dropbox@autostart.service");
+        svc.units = vec!["app-dropbox@autostart.service".into()];
+        // dispatch returns None because the work went to a thread.
+        assert!(a.dispatch("restart", svc).is_none());
+    }
+
+    #[test]
+    fn a_job_never_carries_a_unit() {
+        // A Job lives inside the terminal's cgroup. If it reported that unit,
+        // Pause would freeze the terminal and Stop would kill the shell the
+        // user is typing into.
+        let mut t = target("job:500:1");
+        t.is_job = true;
+        assert!(t.units.is_empty());
+        assert_eq!(t.primary(), "");
+        assert!(t.ordered().is_empty());
+    }
+
+    #[test]
+    fn a_paused_job_is_remembered_and_forgotten() {
+        let mut a = Actions::new();
+        let mut t = target("job:500:1");
+        t.is_job = true;
+        t.pids = vec![]; // an empty signal succeeds, which is all this asserts
+        a.dispatch("pause", t);
+        assert!(a.paused_jobs().contains("job:500:1"));
+
+        let mut t = target("job:500:1");
+        t.is_job = true;
+        a.dispatch("resume", t);
+        assert!(!a.paused_jobs().contains("job:500:1"));
+
+        // A Job that has gone must not leave its paused flag behind for a
+        // recycled id to inherit.
+        let mut t = target("job:501:1");
+        t.is_job = true;
+        a.dispatch("pause", t);
+        assert!(a.paused_jobs().contains("job:501:1"));
+        a.retain_jobs(&HashSet::new());
+        assert!(a.paused_jobs().is_empty());
     }
 
     #[test]
