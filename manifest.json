@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "ryanyogan.omatop",
+  "name": "Omatop",
+  "version": "0.1.0",
+  "author": "Ryan Yogan",
+  "license": "MIT",
+  "description": "System monitor that shows you the culprit. Quiet bar glyph, clean dropdown, full-screen diagnostic overlay with vim keys.",
+  "homepage": "https://github.com/ryanyogan/omarchy-omatop",
+  "repository": "https://github.com/ryanyogan/omarchy-omatop",
+  "keywords": ["system", "monitor", "processes", "cpu", "memory", "gpu", "ports"],
+  "kinds": ["bar-widget", "overlay", "service"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "overlay": "Overlay.qml",
+    "service": "Service.qml"
+  },
+  "keepLoaded": true,
+  "barWidget": {
+    "displayName": "Omatop",
+    "description": "System monitor: pressure glyph, quick stats, full-screen overlay on right-click",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "idleRateHz": 1,
+      "activeRateHz": 4,
+      "reducedMotion": false,
+      "showPercent": false
+    },
+    "schema": [
+      { "key": "showPercent", "type": "boolean", "label": "Show CPU percent next to the glyph", "defaultValue": false },
+      { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion", "defaultValue": false },
+      { "key": "idleRateHz", "type": "integer", "label": "Background sample rate (Hz)", "min": 1, "max": 4, "step": 1, "defaultValue": 1 },
+      { "key": "activeRateHz", "type": "integer", "label": "Sample rate while open (Hz)", "min": 1, "max": 10, "step": 1, "defaultValue": 4 }
+    ]
+  }
+}

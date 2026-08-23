@@ -1,0 +1,23 @@
+[package]
+name = "omatop-sampler"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "omatop-sampler"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The sampler is a long-lived background process on someone's laptop: size and
+# steady-state cost matter more than build time.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+# No `panic = "abort"`: /proc is a minefield of files that vanish mid-read, and
+# a single bad slice must cost one tick, not the whole sampler. The tick body is
+# wrapped in catch_unwind for exactly this reason.
+strip = true
