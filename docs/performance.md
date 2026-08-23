@@ -357,6 +357,10 @@ bottleneck.
 
 ## Summary
 
+> Superseded. These are the numbers as of commit `65cf1a7`, kept as the
+> baseline the fixes are measured against. For the current state of the plugin
+> see the **After** section below.
+
 With nothing open, Omatop costs **0.27% of one core and about 10 MiB**, and the
 sampler meets its stated design target with room to spare. Opening either
 surface multiplies the shell's CPU by 7, and one animation accounts for all of
@@ -365,3 +369,172 @@ does not give the memory or the threads back.
 
 Two changes, both local, take the open cost from 2.9% to about 0.4% and stop
 the 68 MiB leak.
+
+---
+
+# After
+
+Re-measured 2026-08-23 against commit `25e3e9a` ("Perf: lean ticks while
+closed, immediate tick on open, no per-frame sparkline repaints, O(n) rebuild,
+static Repeater models"). The shell and sampler were restarted first so both
+the new QML and the rebuilt binary were live.
+
+Same method as above, same harness, same machine, 45 s windows (9 ticks each at
+the unchanged 0.2 Hz). State A was not repeated; the "before" column is the
+60 s measurement from the first half of this document. Machine load was
+comparable (501 to 512 processes, load average under 1.6 at the start of each
+window).
+
+## Results
+
+Shell and sampler CPU are percent of one core. RSS is MiB at the end of the
+window. Deltas are after minus before.
+
+| State | Shell CPU | Sampler CPU | Shell RSS | Shell threads | Shell ctxsw/s | Machine CPU | GPU mean/max |
+|---|---|---|---|---|---|---|---|
+| **B** enabled, closed | 0.383 → **0.355** (-0.028) | 0.183 → **0.178** (-0.005) | 500.0 → **500.1** (+0.1) | 36 → **36** (0) | 16.6 → **17.0** (+0.4) | 1.80 → **1.67** | 6.53/8 → **7.07/8** |
+| **C** dropdown open | 2.717 → **0.311** (**-2.405**) | 0.183 → **0.133** (-0.050) | 560.1 → **533.0** (-27.1) | 51 → **50** (-1) | 106.8 → **7.8** (**-99.0**) | 2.12 → **1.42** | 8.40/14 → **6.58/8** |
+| **D** overlay open | 2.883 → **2.067** (-0.816) | 0.167 → **0.155** (-0.012) | 591.4 → **561.8** (-29.6) | 53 → **51** (-2) | 92.3 → **63.5** (-28.8) | 2.50 → **1.64** | 10.90/24 → **9.69/15** |
+| **E** closed after both, settled | 0.583 → **0.511** (-0.072) | 0.150 → **0.155** (+0.005) | 568.0 → **539.4** (-28.6) | 45 → **42** (-3) | 24.0 → **20.5** (-3.5) | 1.79 → **1.86** | 6.83/8 → **6.82/8** |
+
+Cost per tick, shell CPU seconds per window divided by ticks in that window
+(12 before, 9 after):
+
+| State | ms per tick before | ms per tick after | Change |
+|---|---|---|---|
+| B closed | 18.5 | **17.9** | -3% |
+| C dropdown | 135.4 | **15.2** | **-89%** |
+| D overlay | 143.6 | **102.6** | -29% |
+| E closed after use | 29.2 | **24.4** | -16% |
+
+## What changed and what did not
+
+### The dropdown is fixed
+
+State C fell from 2.717% to **0.311%**, an 8.7x reduction, and its context
+switches fell from 106.8/s to **7.8/s**, a 13.7x reduction. GPU returned to
+baseline (6.58 mean, 8 max, against 6.53/8 in the closed state).
+
+The per-second series is the clearest evidence. Before, the burst per tick was
+unmistakable; after, it is gone entirely:
+
+```
+C before, shell CPU% per second
+  2.0  0.0  0.0  0.0 10.0  0.0  0.0  2.0  2.0 11.0  0.0  0.0  0.0  0.0 18.0
+
+C after
+  0.0  0.0  0.0  2.0  0.0  1.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  2.0
+```
+
+State C is now cheaper than state B (0.311% against 0.355%), which is within
+noise of the two being equal. **Having the dropdown open is now free.**
+
+`ui/Strip.qml` no longer has a `phase` property, a slide `NumberAnimation` or
+an `onPhaseChanged` handler. It repaints on `onSamplesChanged` only, once per
+tick, which is suggestion 1 from the "before" section carried out.
+
+### The overlay is only 1.4x better, and for the same reason as before
+
+State D fell from 2.883% to 2.067%, a 29% reduction. It still costs **5.8x the
+closed state** and still shows the burst-per-tick shape:
+
+```
+D after, shell CPU% per second
+  0.0  0.0  0.0  1.0  8.0  0.0  0.0  0.0  0.0 13.0  0.0  0.0  0.0  1.0  9.0
+```
+
+Repeating the `reducedMotion` isolation from the "before" section locates the
+remainder:
+
+| | Default | `reducedMotion: true` | Animation share |
+|---|---|---|---|
+| D after fixes | 2.067% | **0.689%** | **67%** |
+| D before fixes | 2.883% | 0.700% | 76% |
+
+The `reducedMotion` figure barely moved (0.700% to 0.689%), which confirms the
+once-per-tick work was already cheap and that the fixes acted on the animation
+path. Two thirds of the overlay's cost is still per-frame animation. It has
+moved from the sparkline to the dial.
+
+`ui/Dial.qml:47-50` is a 400 ms `Behavior on shown`, and `onValueChanged`
+(line 53) retriggers it on every tick. `shown` drives `fraction` (line 38),
+which drives the `sweepAngle` of two `PathAngleArc`s inside a `Shape` using
+`Shape.CurveRenderer` (lines 87 and 95). The overlay instantiates 4 Dials, so
+at 120 Hz that is roughly 48 frames x 4 dials x 2 arcs, about 384 arc
+re-tessellations per tick, all on the CPU. `ui/Dial.qml:142` compounds it: the
+readout text is bound to `dial.reading`, so `toFixed`/`Math.round`, text
+relayout and glyph rasterisation also run on every frame of the glide rather
+than once per tick.
+
+This is the same defect class as the sparkline slide, in a different primitive.
+`Canvas` was fixed; `Shape` was not.
+
+### Retention after use is reduced but not gone
+
+The overlay's layer surface **does** go away now. `hyprctl layers` showed
+`omatop-overlay` present throughout state D and absent immediately after
+`omarchy-shell shell hide`, and it stayed absent across 13 polls over the
+following 2 minutes.
+
+RSS and threads still do not come back. Polled every 10 s for 2 minutes after
+the close, RSS settled at 539.3 MiB and the thread count sat at 42 for every
+one of the 13 samples. Nothing was still trending down.
+
+| Held after opening both surfaces, against the same run's closed state | Before | After | Improvement |
+|---|---|---|---|
+| Shell RSS | +68.0 MiB | **+39.3 MiB** | 42% less |
+| Shell threads | +9 | **+6** | 33% less |
+| Shell CPU | +0.200 pp (+52%) | **+0.156 pp (+44%)** | 22% less |
+| Per-tick cost | +10.7 ms | **+6.5 ms** | 39% less |
+
+**RSS does still grow: by 39.3 MiB, permanently, the first time the overlay is
+opened.** That is the answer to the explicit question. `keepLoaded: false` now
+releases the layer surface, but 6 threads and roughly 39 MiB of heap and
+graphics resources survive the unload.
+
+### The closed state is unchanged
+
+B moved from 0.383% to 0.355% and E from 0.583% to 0.511%, both within the
+run-to-run noise of this machine. The lean tick did not reduce measured cost,
+which is expected: at 4.5 ms per tick the closed-state shell work was already
+near zero, and the sampler still walks all of `/proc` on every tick and only
+trims what it serialises (`sampler/src/main.rs:453,467` select the output,
+they do not skip the scan). The sampler held 0.133 to 0.178% and 3.5 MiB in
+every state, as before.
+
+The lean tick is still worth having. It removes about 31 kB per tick of
+serialisation, IPC and `JSON.parse` that bought nothing while no surface was
+open, and it makes `openSurfaces` a live input (`Service.qml:164-165`) instead
+of the dead counter documented in observation 3 above. It simply was not on the
+critical path.
+
+## Remaining work, ranked
+
+1. **Stop the dial glide from re-tessellating arcs per frame.** Worth
+   **1.38 pp of one core**, 67% of the overlay's cost, measured by the
+   `reducedMotion` comparison. Either drop the glide, or animate a cheap
+   property (rotation or opacity of a pre-built arc) instead of `sweepAngle`,
+   which forces `Shape.CurveRenderer` to rebuild geometry. Separately, bind the
+   readout `Text` to `value` rather than `reading` so text does not relayout
+   48 times per tick.
+2. **Find the 39.3 MiB and 6 threads the overlay does not give back.** The
+   layer surface is released; the heap and render threads are not.
+3. Suggestion 4 from the "before" section (history deltas instead of resending
+   the full ring) is now partly moot while closed, since lean ticks omit
+   `history` entirely. It still applies while a surface is open.
+
+## Summary
+
+Before the fixes, Omatop cost 0.27% of one core and about 10 MiB with nothing
+open, opening either surface multiplied the shell's CPU by 7, and closing the
+overlay gave back neither the memory nor the threads.
+
+After the fixes the closed cost is unchanged and still small, and **the
+dropdown is now free**: 0.311% against 0.355% closed, an 8.7x reduction with
+its wakeups down 13.7x and its GPU load back at baseline. The overlay improved
+1.4x but still costs 2.067%, because two thirds of that is the same per-frame
+animation defect relocated from `Canvas` to `Shape`. Retention after use is
+down from 68.0 MiB to 39.3 MiB and from 9 threads to 6, so the overlay's layer
+surface is now released but its heap and render threads are not.
+
+Two items remain, both local: the dial glide, and the overlay's unload.

@@ -114,6 +114,9 @@ Item {
     detailId = ""
     confirmApp = null
     mode = "normal"
+    // The shell destroys this overlay on hide (keepLoaded is false). Ask the
+    // JS engine to collect what it left behind rather than keeping it around.
+    Qt.callLater(function() { gc() })
   }
 
   function toggle() { opened ? close() : open("{}") }
