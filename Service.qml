@@ -296,13 +296,17 @@ Item {
   function togglePin(app) {
     if (!app) return
     var key = Model.pinKey(app)
+    if (!key || key.length > root.maxPinKeyLength) return
     var next = []
     var found = false
     for (var i = 0; i < root.pins.length; i++) {
       if (root.pins[i] === key) { found = true; continue }
       next.push(root.pins[i])
     }
-    if (!found) next.push(key)
+    if (!found) {
+      if (next.length >= root.maxPins) return
+      next.push(key)
+    }
     root.pins = next
     // Re-stamp the live list so rows update without waiting a tick.
     var list = root.apps.slice()
@@ -314,35 +318,73 @@ Item {
   // ---- Persisted state (pins) -------------------------------------------
 
   property bool stateLoaded: false
+  property bool saveQueued: false
+  readonly property int maxStateBytes: 16384
+  readonly property int maxPins: 64
+  readonly property int maxPinKeyLength: 256
 
-  FileView {
-    id: stateFile
-    path: root.stateFilePath
-    printErrors: false
-    blockLoading: false
-    onLoaded: {
-      try {
-        var parsed = JSON.parse(stateFile.text())
-        if (parsed && Array.isArray(parsed.pins)) root.pins = parsed.pins
-      } catch (e) {}
-      root.stateLoaded = true
+  // Keep only plausible pin keys: strings, bounded length, bounded count.
+  function sanitizePins(list) {
+    var out = []
+    for (var i = 0; i < list.length && out.length < root.maxPins; i++) {
+      var p = list[i]
+      if (typeof p !== "string" || p.length === 0 || p.length > root.maxPinKeyLength) continue
+      if (out.indexOf(p) !== -1) continue
+      out.push(p)
     }
-    onLoadFailed: root.stateLoaded = true
+    return out
+  }
+
+  // The state file lives in a user-writable directory, so treat it as hostile:
+  // refuse symlinks, open read-write so a planted FIFO cannot block the shell,
+  // check the type of the descriptor we actually opened, and read at most
+  // maxStateBytes. The path travels as an argument, never spliced into the
+  // script.
+  Process {
+    id: stateReader
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var parsed = JSON.parse(text)
+          if (parsed && Array.isArray(parsed.pins)) root.pins = root.sanitizePins(parsed.pins)
+        } catch (e) {}
+        root.stateLoaded = true
+      }
+    }
+  }
+
+  function loadState() {
+    stateReader.command = ["bash", "-c",
+      'f="$0"; [ -e "$f" ] || exit 0; [ -L "$f" ] && exit 1; exec 3<>"$f" || exit 1; '
+      + '[ "$(stat -Lc %F /proc/self/fd/3)" = "regular file" ] || exit 1; '
+      + 'head -c ' + root.maxStateBytes + ' <&3',
+      root.stateFilePath]
+    stateReader.running = true
   }
 
   Process {
     id: stateWriter
     running: false
+    onExited: function(code, status) {
+      if (root.saveQueued) { root.saveQueued = false; root.saveState() }
+    }
   }
 
+  // Writes go to an exclusively created random sibling (mktemp, 0600) and land
+  // with an atomic rename, so a planted symlink at the destination is replaced
+  // rather than followed and readers never see a partial file.
   function saveState() {
-    var payload = JSON.stringify({ version: 1, pins: root.pins })
+    if (stateWriter.running) { root.saveQueued = true; return }
+    var payload = JSON.stringify({ version: 1, pins: root.sanitizePins(root.pins) })
     stateWriter.command = ["bash", "-c",
-      "mkdir -p " + Util.shellQuote(root.stateDir) + " && printf '%s' " + Util.shellQuote(payload)
-      + " > " + Util.shellQuote(root.stateFilePath)]
+      'mkdir -p "$0" && tmp=$(mktemp "$0/.omatop.XXXXXXXX") && printf \'%s\' "$2" > "$tmp" '
+      + '&& mv -f "$tmp" "$1" || { rm -f "$tmp"; exit 1; }',
+      root.stateDir, root.stateFilePath, payload]
     stateWriter.running = true
   }
 
-  Component.onCompleted: startSampler()
+  Component.onCompleted: { loadState(); startSampler() }
   Component.onDestruction: stopSampler()
 }
