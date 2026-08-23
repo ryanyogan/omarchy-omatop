@@ -42,7 +42,7 @@ Actions reply on the next tick via `events: [{ "type": "action", "id", "action",
     "load":  [0.5, 0.7, 0.8],
     "uptime": 12345.6
   },
-  "pressure": { "level": "calm" | "busy" | "critical", "score": 0.0..1.5, "reason": "CPU stall 42%" },
+  "pressure": { "level": "calm" | "load" | "heavy" | "critical", "score": 0.0..1.5, "reason": "CPU stall 42%" },
   "culprit": "<appId>" | null,
   "history": {           // system History, oldest first, up to 120 samples at the 1 Hz base rate.
                          // cpu/gpu/mem are percent (mem = used/total*100), temp in C, net/disk bytes/s, power W
@@ -103,7 +103,7 @@ Actions reply on the next tick via `events: [{ "type": "action", "id", "action",
 - **History**: ring of 120 samples per series, advancing once per tick (ten minutes at the 5 s default, two at 1 Hz). The shell labels the axis from the tick interval.
 - **Pressure**: `score = max(psi.cpu/60, psi.memFull/10, psi.ioFull/40, swapInPagesPerSec/2000)`, then
   `score *= 1.3` when CPU temp >= 95 C (thermal throttle zone on this CPU; temperature alone is never a reason).
-  `busy` ≥ 0.35, `critical` ≥ 0.9. `reason` names the dominant term ("cpu stall 42%", "memory stall", "io stall", "swapping").
+  `load` ≥ 0.25, `heavy` ≥ 0.55, `critical` ≥ 1.0. `reason` names the dominant term ("cpu stall 42%", "memory stall", "io stall", "swapping").
 - **Culprit**: App matching the dominant term: cpu → highest `cpu`; memory/swapping → highest `mem`; io → highest
   per-cgroup `io.pressure` some avg10 (fall back to cpu). `null` when `calm`.
 - **State**: `paused` when the unit's `cgroup.freeze` reads 1, or for Jobs when the sampler itself sent SIGSTOP

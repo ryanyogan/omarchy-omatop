@@ -186,17 +186,24 @@ function scales(rows) {
 
 // ---- Pressure ---------------------------------------------------------------
 
-// Pressure hues come from the theme: Calm uses the foreground, Critical uses
-// the theme's own urgent colour, Busy sits between them. No hard-coded palette.
+// The utilisation ramp. Calm keeps the theme's own foreground so the mark
+// disappears into the bar; the three raised steps blend the foreground toward
+// amber, orange and red, so every theme keeps its character while the warning
+// still reads at a glance. Critical prefers the theme's urgent colour.
 function pressureColor(level, calm, urgent) {
-  if (level === "critical") return urgent
-  if (level === "busy") return Qt.tint(calm, Qt.rgba(urgent.r, urgent.g, urgent.b, 0.55))
+  if (level === "critical") {
+    var u = urgent || Qt.rgba(0.88, 0.33, 0.33, 1)
+    return Qt.tint(u, Qt.rgba(0.9, 0.28, 0.24, 0.25))
+  }
+  if (level === "heavy") return Qt.tint(calm, Qt.rgba(0.9, 0.5, 0.2, 0.7))
+  if (level === "load" || level === "busy") return Qt.tint(calm, Qt.rgba(0.88, 0.68, 0.3, 0.5))
   return calm
 }
 
 function pressureLabel(level) {
   if (level === "critical") return "critical"
-  if (level === "busy") return "busy"
+  if (level === "heavy") return "heavy load"
+  if (level === "load" || level === "busy") return "under load"
   return "calm"
 }
 

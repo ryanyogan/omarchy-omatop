@@ -1,15 +1,18 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+import "ui"
 
-// The dropdown: a fixed-width popout anchored to the bar mark. Top to bottom —
-// Pressure header, the Vitals with two minutes of history each, Pinned Apps,
-// the Top three, and a hint line pointing at the full overlay.
+// The dropdown: a fixed-width popout anchored to the bar mark. Top to bottom:
+// Pressure header, four Vitals on the same two-minute axis as the overlay's
+// ledger, one trip line, Pinned Apps, and a key hint pointing at the overlay.
 //
-// Everything here is a reader of Service.qml. The only things it sends back
-// are surfaceOpened/surfaceClosed (which drive the sample rate) and a build
-// request when the sampler binary isn't there yet.
+// This is the overlay's little sibling: same strips, same vocabulary, a
+// quarter of the surface. Everything here is a reader of Service.qml. The only
+// things it sends back are surfaceOpened/surfaceClosed (which drive the sample
+// rate) and a build request when the sampler binary isn't there yet.
 Panel {
   id: root
   moduleName: "ryanyogan.omatop"
@@ -26,7 +29,7 @@ Panel {
   // ---------------------------------------------------------------- lifecycle
 
   // The sample rate is refcounted in the service, so a close must answer
-  // exactly one open — no matter who closed us (key, outside click, popout
+  // exactly one open, no matter who closed us (key, outside click, popout
   // switch, hotkey). Driving it off `opened` is the only place that sees
   // all of them.
   property bool surfaceCounted: false
@@ -72,17 +75,21 @@ Panel {
 
   // ---------------------------------------------------------------- theming
 
+  // This sits on the bar's popup surface, so every colour is the theme's.
   readonly property color ink: root.bar ? root.bar.foreground : Color.foreground
   readonly property color urgent: root.bar ? root.bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(ink, 1.5)
+  readonly property color faint: Util.alpha(ink, 0.45)
   readonly property color hairline: Util.alpha(ink, 0.12)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
 
   // ---------------------------------------------------------------- state
 
   readonly property bool reducedMotion: root.service ? root.service.reducedMotion === true : false
+  readonly property bool animated: !root.reducedMotion
   readonly property string samplerState: root.service ? String(root.service.samplerState || "starting") : "starting"
   readonly property bool running: samplerState === "running"
+  readonly property bool canBuild: samplerState === "missing" || samplerState === "buildFailed"
 
   // Everything below reads through these three, and they are empty while the
   // dropdown is closed, so a closed dropdown re-evaluates nothing on a tick.
@@ -115,27 +122,22 @@ Panel {
   readonly property var cpuSeries: history && history.cpu ? history.cpu : []
   readonly property var gpuSeries: history && history.gpu ? history.gpu : []
   readonly property var tempSeries: history && history.temp ? history.temp : []
-
-  // History carries memory in bytes; the row reads as a percentage of total,
-  // so convert once per tick here rather than inside onPaint.
   // history.mem is already a percent of total (sampler protocol).
-  readonly property var memSeries: root.history && root.history.mem ? root.history.mem : []
+  readonly property var memSeries: history && history.mem ? history.mem : []
 
-
-  // Temperature has no natural ceiling; keep the axis stable at 90° unless
-  // the machine actually runs hotter, so the line doesn't rescale every tick.
-  readonly property real tempCeiling: Math.max(90, Model.maxOf(root.tempSeries, 0))
-
+  // Throughput and draw, in fixed-width formatters so the line never reflows
+  // under its own numbers.
   readonly property string netText:
-    netAvailable ? "↓ " + Model.rate(vitals.net.rx) + "   ↑ " + Model.rate(vitals.net.tx) : ""
-  readonly property string powerText: powerAvailable ? Model.watts(vitals.power.watts) : ""
+    netAvailable ? "↓ " + Model.bytes(vitals.net.rx) + "/s   ↑ " + Model.bytes(vitals.net.tx) + "/s" : ""
+  readonly property string powerText: {
+    if (!powerAvailable) return ""
+    var battery = Number(vitals.power.battery)
+    return Model.watts(vitals.power.watts) + (battery >= 0 ? "   " + Math.round(battery) + "%" : "")
+  }
 
   // ---- Apps ---------------------------------------------------------------
 
   readonly property var pinnedRows: Model.pinnedApps(root.apps)
-  // One line, not a list: a list sorted by usage reorders itself, which is
-  // exactly the jumping this dropdown avoids.
-  readonly property var busiest: Model.topApps(root.apps, 1)[0] || null
 
   // ---- Sampler state card -------------------------------------------------
 
@@ -159,55 +161,39 @@ Panel {
     return ""
   }
 
+  // ---- Footer hints -------------------------------------------------------
+
+  readonly property var hints: root.canBuild
+    ? [["o", "full monitor"], ["b", "build sampler"]]
+    : [["o", "full monitor"]]
+
   // ---------------------------------------------------------------- metrics
 
   // Fixed columns so numerals never jitter as digits come and go.
   TextMetrics {
-    id: labelMetrics
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
-    font.letterSpacing: 1.2
-    text: "MEMORY"
-  }
-
-  TextMetrics {
-    id: vitalValueMetrics
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.title
-    text: "100%"
-  }
-
-  TextMetrics {
     id: appCpuMetrics
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
-    text: "100%"
+    text: "100.0%"
   }
 
   TextMetrics {
     id: appMemMetrics
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
-    text: "9999M"
+    text: "1023M"
   }
 
-  readonly property real labelColumn: Math.ceil(labelMetrics.advanceWidth)
-  readonly property real valueColumn: Math.ceil(vitalValueMetrics.advanceWidth)
   readonly property real cpuColumn: Math.ceil(appCpuMetrics.advanceWidth)
   readonly property real memColumn: Math.ceil(appMemMetrics.advanceWidth)
 
-  readonly property real vitalRowHeight: Style.space(28)
-  readonly property real appRowHeight: Style.space(24)
-
-  // ---------------------------------------------------------------- motion
-
-  // Sparklines repaint once per tick. A per-frame slide was measured at 7x
-  // the plugin's entire idle cost, for an effect nobody asked for.
-  readonly property real slide: 1
+  readonly property real stripHeight: Style.space(44)
+  readonly property real appRowHeight: Style.space(30)
+  readonly property real appIconSize: Style.space(16)
 
   // ---------------------------------------------------------------- frame
 
-  readonly property real panelWidth: Style.space(360)
+  readonly property real panelWidth: Style.space(380)
 
   KeyboardPanel {
     id: panel
@@ -231,9 +217,7 @@ Panel {
       onActivateRequested: root.openOverlay()
       onTextKey: function(t) {
         if (t === "o" || t === "O") root.openOverlay()
-        else if ((t === "b" || t === "B")
-                 && (root.samplerState === "missing" || root.samplerState === "buildFailed"))
-          root.buildSampler()
+        else if ((t === "b" || t === "B") && root.canBuild) root.buildSampler()
       }
 
       Column {
@@ -256,29 +240,32 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               text: "Omatop"
               color: root.ink
-              textFormat: Text.PlainText; font.family: root.fontFamily
+              textFormat: Text.PlainText
+              font.family: root.fontFamily
               font.pixelSize: Style.font.heading
               font.bold: true
             }
 
+            // The Pressure chip: a tinted wash of the level's own hue, so a
+            // calm machine keeps the theme's foreground and a loaded one
+            // warms without shouting.
             Rectangle {
-              id: pressurePill
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               height: Style.space(18)
-              width: Style.space(7) + pressureDot.width + Style.space(5)
-                + Math.ceil(pressureLabel.implicitWidth) + Style.space(7)
+              width: Style.space(7) + pressureDot.width + Style.space(6)
+                + Math.ceil(pressureLabel.implicitWidth) + Style.space(8)
               radius: height / 2
               color: Util.alpha(root.pressureColor, 0.12)
               border.width: 1
-              border.color: Util.alpha(root.pressureColor, 0.4)
+              border.color: Util.alpha(root.pressureColor, 0.35)
 
               Behavior on color {
-                enabled: !root.reducedMotion
+                enabled: root.animated
                 ColorAnimation { duration: 300 }
               }
               Behavior on border.color {
-                enabled: !root.reducedMotion
+                enabled: root.animated
                 ColorAnimation { duration: 300 }
               }
 
@@ -293,7 +280,7 @@ Panel {
                 color: root.pressureColor
 
                 Behavior on color {
-                  enabled: !root.reducedMotion
+                  enabled: root.animated
                   ColorAnimation { duration: 300 }
                 }
               }
@@ -301,16 +288,19 @@ Panel {
               Text {
                 id: pressureLabel
                 anchors.left: pressureDot.right
-                anchors.leftMargin: Style.space(5)
+                anchors.leftMargin: Style.space(6)
                 anchors.verticalCenter: parent.verticalCenter
-                text: Model.pressureLabel(root.pressureLevel).toUpperCase()
+                text: Model.pressureLabel(root.pressureLevel)
                 color: root.pressureColor
-                textFormat: Text.PlainText; font.family: root.fontFamily
+                textFormat: Text.PlainText
+                font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
+                font.bold: true
                 font.letterSpacing: 1.2
+                font.capitalization: Font.AllUppercase
 
                 Behavior on color {
-                  enabled: !root.reducedMotion
+                  enabled: root.animated
                   ColorAnimation { duration: 300 }
                 }
               }
@@ -325,91 +315,164 @@ Panel {
             text: root.pressureReason
             elide: Text.ElideRight
             color: root.dim
-            textFormat: Text.PlainText; font.family: root.fontFamily
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
         }
 
         // ------------------------------------------------------- vitals
 
+        // The same Strip the overlay's ledger is built from, on the same
+        // two-minute axis. Label and value ride the top edge, so the graph
+        // gets the panel's full width and there is no label column.
         Column {
+          id: strips
           width: parent.width
-          spacing: Style.spacing.md
+          spacing: Style.space(10)
           visible: root.running
 
-          VitalRow {
-            label: "CPU"
-            value: root.cpuNow >= 0 ? Model.pct(root.cpuNow, 0) : "--"
+          Strip {
+            width: strips.width
+            height: root.stripHeight
+            label: "cpu"
+            maxValue: 100
             samples: root.cpuSeries
-            ceiling: 100
+            valueText: root.cpuNow >= 0 ? Model.pct(root.cpuNow) : "--"
+            formatter: function(x) { return Model.pct(x) }
+            ink: root.ink
             // CPU is the row Pressure is mostly about, so it carries the hue.
-            lineColor: root.pressureColor
+            line: root.pressureColor
+            dim: root.dim
+            faint: root.faint
+            hairline: root.hairline
+            fontFamily: root.fontFamily
+            scrub: -1
+            animated: root.animated
+
+            Behavior on line {
+              enabled: root.animated
+              ColorAnimation { duration: 300 }
+            }
           }
 
-          VitalRow {
-            label: "Memory"
-            value: root.memNow >= 0 ? Model.pct(root.memNow, 0) : "--"
+          Strip {
+            width: strips.width
+            height: root.stripHeight
+            label: "memory"
+            maxValue: 100
             samples: root.memSeries
-            ceiling: 100
+            valueText: root.memNow >= 0 ? Model.bytes(root.memUsed) : "--"
+            formatter: function(x) { return Model.pct(x) }
+            ink: root.ink
+            line: root.ink
+            dim: root.dim
+            faint: root.faint
+            hairline: root.hairline
+            fontFamily: root.fontFamily
+            scrub: -1
+            animated: root.animated
           }
 
-          VitalRow {
-            label: "GPU"
+          Strip {
+            width: strips.width
+            height: root.stripHeight
             visible: root.gpuAvailable
-            value: root.gpuNow >= 0 ? Model.pct(root.gpuNow, 0) : "--"
+            label: "gpu"
+            maxValue: 100
             samples: root.gpuSeries
-            ceiling: 100
+            valueText: root.gpuNow >= 0 ? Model.pct(root.gpuNow) : "--"
+            formatter: function(x) { return Model.pct(x) }
+            ink: root.ink
+            line: root.ink
+            dim: root.dim
+            faint: root.faint
+            hairline: root.hairline
+            fontFamily: root.fontFamily
+            scrub: -1
+            animated: root.animated
           }
 
-          VitalRow {
-            label: "Temp"
+          Strip {
+            width: strips.width
+            height: root.stripHeight
             visible: root.tempAvailable
-            value: Model.temp(root.cpuTemp)
+            label: "temperature"
+            maxValue: 100
             samples: root.tempSeries
-            ceiling: root.tempCeiling
+            valueText: Model.temp(root.cpuTemp)
+            formatter: function(x) { return Model.temp(x) }
+            ink: root.ink
+            line: root.cpuTemp >= 90 ? root.urgent : root.dim
+            dim: root.dim
+            faint: root.faint
+            hairline: root.hairline
+            fontFamily: root.fontFamily
+            scrub: -1
+            animated: root.animated
+
+            Behavior on line {
+              enabled: root.animated
+              ColorAnimation { duration: 300 }
+            }
           }
 
-          // Throughput and draw: numbers only. A sparkline here would be
-          // noise — these are read, not watched.
-          Item {
+          // The trip line: throughput and draw, read rather than watched, so
+          // no graph, just one quiet row of numbers.
+          Row {
             width: parent.width
-            height: root.appRowHeight
+            height: Style.space(16)
+            spacing: Style.space(8)
             visible: root.netAvailable || root.powerAvailable
 
             Text {
-              id: netLabel
-              anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
-              width: root.labelColumn
+              visible: root.netAvailable
               text: "NET"
-              color: root.dim
-              textFormat: Text.PlainText; font.family: root.fontFamily
+              color: root.faint
+              textFormat: Text.PlainText
+              font.family: root.fontFamily
               font.pixelSize: Style.font.caption
-              font.letterSpacing: 1.2
+              font.bold: true
+              font.letterSpacing: 1.5
             }
 
             Text {
-              id: powerValue
-              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.netAvailable
+              text: root.netText
+              color: root.dim
+              textFormat: Text.PlainText
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Item {
+              width: Style.space(8)
+              height: 1
+              visible: root.netAvailable && root.powerAvailable
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.powerAvailable
+              text: "POWER"
+              color: root.faint
+              textFormat: Text.PlainText
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.5
+            }
+
+            Text {
               anchors.verticalCenter: parent.verticalCenter
               visible: root.powerAvailable
               text: root.powerText
-              color: root.ink
-              textFormat: Text.PlainText; font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Text {
-              anchors.left: netLabel.right
-              anchors.leftMargin: Style.spacing.md
-              anchors.right: root.powerAvailable ? powerValue.left : parent.right
-              anchors.rightMargin: root.powerAvailable ? Style.spacing.md : 0
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.netText
-              elide: Text.ElideRight
-              color: root.ink
-              textFormat: Text.PlainText; font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              color: root.dim
+              textFormat: Text.PlainText
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
             }
           }
         }
@@ -426,7 +489,8 @@ Panel {
             text: root.stateTitle
             wrapMode: Text.WordWrap
             color: root.samplerState === "buildFailed" ? root.urgent : root.ink
-            textFormat: Text.PlainText; font.family: root.fontFamily
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
             font.pixelSize: Style.font.subtitle
           }
 
@@ -436,7 +500,8 @@ Panel {
             text: root.stateBody
             wrapMode: Text.WrapAnywhere
             color: root.dim
-            textFormat: Text.PlainText; font.family: root.fontFamily
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             lineHeight: 1.25
           }
@@ -444,6 +509,8 @@ Panel {
 
         // ------------------------------------------------------- pinned
 
+        // Nothing pinned means nothing here: an empty state would be a whole
+        // section explaining its own absence.
         Column {
           width: parent.width
           spacing: Style.spacing.sm
@@ -458,48 +525,10 @@ Panel {
           Repeater {
             model: root.pinnedRows
 
-            AppRow {
+            PinnedRow {
               required property var modelData
               app: modelData
             }
-          }
-        }
-
-        // ------------------------------------------------------- busiest
-
-        Item {
-          width: parent.width
-          height: Style.space(24)
-          visible: root.running && root.busiest !== null
-
-          Text {
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            text: "BUSIEST"
-            color: root.dim
-            textFormat: Text.PlainText; font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1.2
-          }
-          Text {
-            anchors.right: busiestNum.left
-            anchors.rightMargin: Style.space(10)
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.busiest ? root.busiest.name : ""
-            color: root.busiest && root.service && root.busiest.id === root.service.culprit ? root.pressureColor : root.ink
-            textFormat: Text.PlainText; font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-          }
-          Text {
-            id: busiestNum
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(52)
-            horizontalAlignment: Text.AlignRight
-            text: root.busiest ? Model.pct(root.busiest.cpu) : ""
-            color: root.ink
-            textFormat: Text.PlainText; font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
           }
         }
 
@@ -507,7 +536,7 @@ Panel {
 
         Item {
           width: parent.width
-          height: Style.space(26)
+          height: Style.space(28)
 
           Rectangle {
             anchors.top: parent.top
@@ -516,202 +545,152 @@ Panel {
             color: root.hairline
           }
 
-          Text {
+          Row {
             anchors.left: parent.left
-            anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: Style.space(3)
-            text: "Right-click or Super+Ctrl+M for the full monitor  ·  o opens it"
-            elide: Text.ElideRight
-            color: Qt.darker(root.dim, 1.15)
-            textFormat: Text.PlainText; font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            spacing: Style.space(14)
+
+            Repeater {
+              model: root.hints
+
+              Row {
+                id: hint
+                required property var modelData
+                spacing: Style.space(6)
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Math.ceil(keyCap.implicitWidth) + Style.space(12)
+                  height: Style.space(17)
+                  radius: Style.space(4)
+                  color: Util.alpha(root.ink, 0.07)
+                  border.width: 1
+                  border.color: root.hairline
+
+                  Text {
+                    id: keyCap
+                    anchors.centerIn: parent
+                    text: hint.modelData[0]
+                    color: root.dim
+                    textFormat: Text.PlainText
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: hint.modelData[1]
+                  color: root.faint
+                  textFormat: Text.PlainText
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
           }
         }
       }
     }
   }
 
-  // ================================================================ sparkline
+  // ================================================================ pinned row
 
-  // Two minutes of one Vital: a filled area under a 1px line. Repaints on the
-  // tick, and — unless motion is reduced — walks the series left by exactly
-  // one sample width while the newest point arrives, so it slides.
-  component Sparkline: Canvas {
-    id: spark
-
-    property var samples: []
-    property real ceiling: 100
-    property color lineColor: root.ink
-    property real progress: root.slide
-
-    height: Style.space(22)
-    renderStrategy: Canvas.Cooperative
-
-    Behavior on lineColor {
-      enabled: !root.reducedMotion
-      ColorAnimation { duration: 300 }
-    }
-
-    onSamplesChanged: if (root.opened) requestPaint()
-    Connections { target: root; function onOpenedChanged() { if (root.opened) spark.requestPaint() } }
-    onProgressChanged: requestPaint()
-    onLineColorChanged: requestPaint()
-
-    onPaint: {
-      var ctx = spark.getContext("2d")
-      if (!ctx) return
-      ctx.reset()
-
-      var w = spark.width
-      var h = spark.height
-      var data = spark.samples
-      var n = data ? data.length : 0
-      if (w <= 0 || h <= 0 || n < 2) return
-
-      var top = 1
-      var floorY = h - 1
-      var span = Math.max(1, floorY - top)
-      var ceil = Math.max(1, spark.ceiling)
-      var step = w / (n - 1)
-      var offset = (1 - Util.clamp(spark.progress, 0, 1)) * step
-
-      var xs = []
-      var ys = []
-      for (var i = 0; i < n; i++) {
-        xs.push(i * step + offset)
-        ys.push(floorY - Util.clamp((Number(data[i]) || 0) / ceil, 0, 1) * span)
-      }
-
-      ctx.beginPath()
-      ctx.moveTo(0, floorY)
-      ctx.lineTo(0, ys[0])
-      for (var f = 0; f < n; f++) ctx.lineTo(xs[f], ys[f])
-      ctx.lineTo(xs[n - 1], floorY)
-      ctx.closePath()
-      ctx.fillStyle = Util.alpha(root.ink, 0.10)
-      ctx.fill()
-
-      ctx.beginPath()
-      ctx.moveTo(0, ys[0])
-      for (var s = 0; s < n; s++) ctx.lineTo(xs[s], ys[s])
-      ctx.lineWidth = 1
-      ctx.strokeStyle = spark.lineColor
-      ctx.stroke()
-    }
-  }
-
-  // ================================================================ vital row
-
-  component VitalRow: Item {
-    id: vrow
-
-    property string label: ""
-    property string value: "--"
-    property var samples: []
-    property real ceiling: 100
-    property color lineColor: root.ink
-
-    width: parent ? parent.width : 0
-    height: root.vitalRowHeight
-
-    Text {
-      id: vrowLabel
-      anchors.left: parent.left
-      anchors.verticalCenter: parent.verticalCenter
-      width: root.labelColumn
-      text: vrow.label.toUpperCase()
-      color: root.dim
-      textFormat: Text.PlainText; font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      font.letterSpacing: 1.2
-    }
-
-    Text {
-      id: vrowValue
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      width: root.valueColumn
-      horizontalAlignment: Text.AlignRight
-      text: vrow.value
-      color: root.ink
-      textFormat: Text.PlainText; font.family: root.fontFamily
-      font.pixelSize: Style.font.title
-    }
-
-    Sparkline {
-      anchors.left: vrowLabel.right
-      anchors.leftMargin: Style.spacing.md
-      anchors.right: vrowValue.left
-      anchors.rightMargin: Style.spacing.md
-      anchors.verticalCenter: parent.verticalCenter
-      samples: vrow.samples
-      ceiling: vrow.ceiling
-      lineColor: vrow.lineColor
-    }
-  }
-
-  // ================================================================ app row
-
-  component AppRow: Item {
-    id: arow
+  // A narrower cousin of ui/AppRow: themed icon (monogram tile when the theme
+  // has none), name, then CPU and memory in fixed columns. No meters: at this
+  // width the bars would be shorter than the numbers beside them.
+  component PinnedRow: Item {
+    id: prow
 
     property var app: null
 
     width: parent ? parent.width : 0
     height: root.appRowHeight
 
-    readonly property bool isCulprit: !!(arow.app && root.culprit !== "" && arow.app.id === root.culprit)
+    readonly property bool isCulprit: !!(prow.app && root.culprit !== "" && prow.app.id === root.culprit)
+    readonly property string iconSource: prow.app && prow.app.icon ? Quickshell.iconPath(prow.app.icon, true) : ""
+
+    Item {
+      id: iconSlot
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      width: root.appIconSize
+      height: root.appIconSize
+
+      Image {
+        anchors.fill: parent
+        source: prow.iconSource
+        sourceSize.width: root.appIconSize
+        sourceSize.height: root.appIconSize
+        visible: prow.iconSource !== ""
+        smooth: true
+      }
+
+      Rectangle {
+        anchors.fill: parent
+        radius: Style.space(4)
+        visible: prow.iconSource === ""
+        color: Util.alpha(root.ink, 0.08)
+        border.width: 1
+        border.color: root.hairline
+
+        Text {
+          anchors.centerIn: parent
+          text: prow.app ? (prow.app.kind === "job" ? "›" : String(prow.app.name || "?").charAt(0).toUpperCase()) : ""
+          color: root.dim
+          textFormat: Text.PlainText
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+      }
+    }
 
     Text {
-      id: arowMem
+      id: prowMem
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       width: root.memColumn
       horizontalAlignment: Text.AlignRight
-      text: arow.app ? Model.bytes(arow.app.mem) : ""
+      text: prow.app ? Model.bytes(prow.app.mem) : ""
       color: root.dim
-      textFormat: Text.PlainText; font.family: root.fontFamily
+      textFormat: Text.PlainText
+      font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
     }
 
     Text {
-      id: arowCpu
-      anchors.right: arowMem.left
+      id: prowCpu
+      anchors.right: prowMem.left
       anchors.rightMargin: Style.spacing.md
       anchors.verticalCenter: parent.verticalCenter
       width: root.cpuColumn
       horizontalAlignment: Text.AlignRight
-      text: arow.app ? Model.pct(arow.app.cpu, 0) : ""
+      text: prow.app ? Model.pct(prow.app.cpu) : ""
       color: root.ink
-      textFormat: Text.PlainText; font.family: root.fontFamily
+      textFormat: Text.PlainText
+      font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
     }
 
     Text {
-      id: arowPorts
-      anchors.right: arowCpu.left
+      anchors.left: iconSlot.right
+      anchors.leftMargin: Style.space(10)
+      anchors.right: prowCpu.left
       anchors.rightMargin: Style.spacing.md
       anchors.verticalCenter: parent.verticalCenter
-      text: arow.app ? Model.ports(arow.app.ports) : ""
-      color: root.dim
-      textFormat: Text.PlainText; font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-    }
-
-    Text {
-      anchors.left: parent.left
-      anchors.right: arowPorts.left
-      anchors.rightMargin: Style.spacing.sm
-      anchors.verticalCenter: parent.verticalCenter
-      text: arow.app ? String(arow.app.name || "") : ""
+      text: prow.app ? String(prow.app.name || "") : ""
       elide: Text.ElideRight
-      color: arow.isCulprit ? root.pressureColor : root.ink
-      textFormat: Text.PlainText; font.family: root.fontFamily
+      color: prow.isCulprit ? root.pressureColor : root.ink
+      textFormat: Text.PlainText
+      font.family: root.fontFamily
       font.pixelSize: Style.font.body
+      font.weight: prow.isCulprit ? Font.DemiBold : Font.Normal
 
       Behavior on color {
-        enabled: !root.reducedMotion
+        enabled: root.animated
         ColorAnimation { duration: 300 }
       }
     }

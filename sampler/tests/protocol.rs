@@ -96,7 +96,7 @@ fn every_tick_carries_the_documented_shape() {
     }
 
     let p = &t["pressure"];
-    assert!(["calm", "busy", "critical"].contains(&p["level"].as_str().unwrap()));
+    assert!(["calm", "load", "heavy", "critical"].contains(&p["level"].as_str().unwrap()));
     let score = p["score"].as_f64().unwrap();
     assert!((0.0..=1.5).contains(&score), "score {score} out of range");
     assert!(p["reason"].is_string());

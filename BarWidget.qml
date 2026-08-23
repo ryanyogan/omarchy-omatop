@@ -3,9 +3,9 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Omatop's bar presence: a three-bar pulse mark drawn from the last three CPU
-// samples, tinted by Pressure. It is meant to be ignorable — the colour is the
-// signal, the motion is only there when the machine is actually in trouble.
+// Omatop's bar presence: a chip mark whose colour walks the utilisation ramp
+// tinted by Pressure. It is meant to be ignorable: the colour is the signal
+// and it never moves.
 //
 // Left click toggles the dropdown, right click opens the full overlay,
 // middle click and the wheel do nothing on purpose.
@@ -50,7 +50,7 @@ BarWidget {
     if (root.samplerState === "buildFailed") return "Omatop: sampler build failed — open for the log"
     if (root.samplerState === "crashed") return "Omatop: sampler crashed, restarting"
     if (!root.samplerReady) return "Omatop: sampler starting…"
-    var head = "Omatop — " + Model.pressureLabel(root.pressureLevel)
+    var head = "Omatop · " + Model.pressureLabel(root.pressureLevel)
     if (root.cpuNow >= 0) head += " · CPU " + Model.pct(root.cpuNow, 0)
     var reason = service && service.pressure ? String(service.pressure.reason || "") : ""
     return root.pressureLevel !== "calm" && reason !== "" ? head + " · " + reason : head
@@ -152,6 +152,9 @@ BarWidget {
       // The mark. Three fixed bars tinted by
       // Pressure — a shape rather than a font icon, so it stays honest at
       // any bar size and never depends on a Nerd Font being present.
+      // The mark: a chip. A rounded die with legs on all four sides and a
+      // core inside. It never moves; only its colour walks the utilisation
+      // ramp (calm, amber, orange, red).
       Canvas {
         id: glyph
         anchors.verticalCenter: parent.verticalCenter
@@ -159,13 +162,13 @@ BarWidget {
         height: Style.bar.iconCanvas
         renderStrategy: Canvas.Cooperative
 
-        property color tint: root.pressureColor
+        property color tint: root.samplerReady ? root.pressureColor : root.ink
+        opacity: root.samplerReady ? 1 : 0.6
 
         Behavior on tint {
           enabled: !root.reducedMotion
           ColorAnimation { duration: 300 }
         }
-
         onTintChanged: requestPaint()
 
         onPaint: {
@@ -177,23 +180,44 @@ BarWidget {
           var h = glyph.height
           if (w <= 0 || h <= 0) return
 
-          var barW = Math.max(1, Math.round(w / 5))
-          var gap = Math.max(1, Math.round(barW * 0.9))
-          var total = barW * 3 + gap * 2
-          var originX = Math.round((w - total) / 2)
-          var inset = Math.max(1, Math.round(h * 0.12))
-          var floorY = h - inset
-          var span = Math.max(2, floorY - inset)
-          var minH = Math.max(2, Math.round(span * 0.18))
+          var leg = Math.max(2, Math.round(w * 0.14))
+          var lw = Math.max(1, Math.round(w * 0.09))
+          var bodyR = Math.max(1.5, w * 0.12)
+          var x0 = leg, y0 = leg
+          var bw = w - leg * 2, bh = h - leg * 2
 
-          // A fixed mark: three bars at rest heights. Only the colour changes,
-          // so the bar never draws attention by moving.
+          ctx.strokeStyle = glyph.tint
           ctx.fillStyle = glyph.tint
-          var levels = [0.45, 1.0, 0.7]
-          for (var i = 0; i < 3; i++) {
-            var barH = Math.round(minH + (span - minH) * levels[i])
-            ctx.fillRect(originX + i * (barW + gap), floorY - barH, barW, barH)
+          ctx.lineWidth = lw
+          ctx.lineCap = "round"
+
+          // Legs: three per side, centred on the body edges.
+          var positions = [0.28, 0.5, 0.72]
+          for (var i = 0; i < positions.length; i++) {
+            var t = positions[i]
+            var px = Math.round(x0 + bw * t)
+            var py = Math.round(y0 + bh * t)
+            ctx.beginPath()
+            ctx.moveTo(px, 0); ctx.lineTo(px, y0 - 1)
+            ctx.moveTo(px, h); ctx.lineTo(px, h - y0 + 1)
+            ctx.moveTo(0, py); ctx.lineTo(x0 - 1, py)
+            ctx.moveTo(w, py); ctx.lineTo(w - x0 + 1, py)
+            ctx.stroke()
           }
+
+          // Body outline.
+          ctx.beginPath()
+          ctx.moveTo(x0 + bodyR, y0)
+          ctx.arcTo(x0 + bw, y0, x0 + bw, y0 + bh, bodyR)
+          ctx.arcTo(x0 + bw, y0 + bh, x0, y0 + bh, bodyR)
+          ctx.arcTo(x0, y0 + bh, x0, y0, bodyR)
+          ctx.arcTo(x0, y0, x0 + bw, y0, bodyR)
+          ctx.closePath()
+          ctx.stroke()
+
+          // Core.
+          var cw = Math.max(2, Math.round(bw * 0.34))
+          ctx.fillRect(Math.round(w / 2 - cw / 2), Math.round(h / 2 - cw / 2), cw, cw)
         }
       }
 

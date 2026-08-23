@@ -6,9 +6,9 @@ A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. 
 
 ## What you get
 
-**In the bar.** A small fixed mark. It stays the colour of your theme while the machine is calm and shifts toward the urgent colour when the kernel reports real pressure. It never moves. Left click opens the quick view, right click opens the cluster.
+**In the bar.** A small chip mark. It wears your theme foreground while the machine is calm, then shades amber, orange and red as the kernel reports real pressure. It never moves; the colour is the whole signal. Left click opens the quick view, right click opens the cluster.
 
-**The quick view.** CPU, memory, GPU and temperature sparklines, net and power, the Apps you pinned, and one line naming the busiest App. Nothing in it reorders. Press `o` to jump to the cluster.
+**The quick view.** CPU, memory, GPU and temperature as glowing timelines, one stable net and power line, and the Apps you pinned. Nothing in it reorders. Press `o` to jump to the cluster.
 
 **The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then track live: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared ten minute axis, so a spike in one lines up with a spike in another. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
 
@@ -20,7 +20,7 @@ A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. 
 
 **Actions.** `x` stops (asks first). `ss` pauses and resumes, using the cgroup freezer so the whole app freezes atomically. `r` restarts a service. `p` pins an App so it shows in the quick view and survives restarts. The Desktop bucket (compositor, shell, audio) is read-only, on purpose.
 
-**Pressure.** Calm, busy, or critical, computed from the kernel's pressure stall information (PSI) and swap-in rate, not from a CPU percentage. Temperature only counts once the CPU is actually in its throttle zone. The glyph, the quick view and the cluster all read the same value.
+**Pressure.** Calm, under load, heavy load, or critical, computed from the kernel's pressure stall information (PSI) and swap-in rate, not from a CPU percentage. Temperature only counts once the CPU is actually in its throttle zone. The glyph, the quick view and the cluster all read the same value.
 
 **Your theme.** Accent and urgent colours come from the theme. Spacing and type follow the shell. Reduce motion is a setting.
 

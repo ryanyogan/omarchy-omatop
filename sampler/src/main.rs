@@ -137,10 +137,14 @@ pub fn pressure(psi: &vitals::PsiVital, temp: Option<f64>, swap_in_pages_per_sec
     let throttling = temp.map(|c| c >= 95.0).unwrap_or(false);
     let score = (if throttling { raw * 1.3 } else { raw }).clamp(0.0, 1.5);
 
-    let level = if score >= 0.9 {
+    // Four steps so the bar mark can shade gradually with load: calm, then
+    // load (light amber), heavy (orange), critical (red).
+    let level = if score >= 1.0 {
         "critical"
-    } else if score >= 0.35 {
-        "busy"
+    } else if score >= 0.55 {
+        "heavy"
+    } else if score >= 0.25 {
+        "load"
     } else {
         "calm"
     };
@@ -598,18 +602,18 @@ mod tests {
     }
 
     #[test]
-    fn cpu_stall_crosses_busy_at_21_percent() {
-        // 0.35 * 60 = 21
-        assert_eq!(pressure(&psi(20.0, 0.0, 0.0), None, 0.0).level, "calm");
-        let p = pressure(&psi(21.0, 0.0, 0.0), None, 0.0);
-        assert_eq!(p.level, "busy");
-        assert_eq!(p.reason, "cpu stall 21%");
+    fn cpu_stall_crosses_load_at_15_percent() {
+        // 0.25 * 60 = 15
+        assert_eq!(pressure(&psi(14.0, 0.0, 0.0), None, 0.0).level, "calm");
+        let p = pressure(&psi(16.0, 0.0, 0.0), None, 0.0);
+        assert_eq!(p.level, "load");
+        assert_eq!(p.reason, "cpu stall 16%");
     }
 
     #[test]
-    fn cpu_stall_crosses_critical_at_54_percent() {
-        assert_eq!(pressure(&psi(53.0, 0.0, 0.0), None, 0.0).level, "busy");
-        assert_eq!(pressure(&psi(54.0, 0.0, 0.0), None, 0.0).level, "critical");
+    fn cpu_stall_crosses_critical_at_60_percent() {
+        assert_eq!(pressure(&psi(53.0, 0.0, 0.0), None, 0.0).level, "heavy");
+        assert_eq!(pressure(&psi(60.0, 0.0, 0.0), None, 0.0).level, "critical");
     }
 
     #[test]
@@ -659,7 +663,7 @@ mod tests {
         let p = pressure(&psi(0.0, 0.0, 0.0), None, 1800.0);
         assert_eq!(p.reason, "swapping");
         assert_eq!(p.term, Term::Swapping);
-        assert_eq!(p.level, "critical"); // 1800/2000 = 0.9
+        assert_eq!(p.level, "heavy"); // 1800/2000 = 0.9
     }
 
     #[test]
