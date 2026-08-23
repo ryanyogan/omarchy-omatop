@@ -22,24 +22,36 @@ function isPinned(pins, app) {
 
 // ---- Formatting -------------------------------------------------------------
 
+// Always "ddd" + unit (3 significant figures), so a value never changes width
+// as it moves: 0.26K, 5.18K, 12.0M, 145M, 1.54G. Monospace keeps it aligned.
 function bytes(n) {
   n = Number(n) || 0
-  if (n < 1024) return Math.round(n) + " B"
   var units = ["K", "M", "G", "T"]
-  var u = -1
-  while (n >= 1024 && u < units.length - 1) { n /= 1024; u++ }
-  return String(n >= 100 ? Math.round(n) : n >= 10 ? n.toFixed(1) : n.toFixed(2)).replace(/\.0+$/, "") + units[u]
+  var u = 0
+  n /= 1024
+  while (n >= 1000 && u < units.length - 1) { n /= 1024; u++ }
+  var s = n >= 100 ? Math.round(n).toString() : n >= 10 ? n.toFixed(1) : n.toFixed(2)
+  return s + units[u]
 }
 
 function rate(n) {
   return bytes(n) + "/s"
 }
 
+// Always one decimal: "0.0%", "38.2%", "100.0%". No width dance between 9% and 10%.
 function pct(n, digits) {
   n = Number(n)
   if (!isFinite(n) || n < 0) return "--"
-  if (digits === undefined) digits = n >= 10 ? 0 : 1
-  return n.toFixed(digits) + "%"
+  return n.toFixed(1) + "%"
+}
+
+// Human span for an axis: 120s → "2m", 600s → "10m", 45s → "45s".
+function span(ms) {
+  var s = Math.round(ms / 1000)
+  if (s < 60) return s + "s"
+  var m = Math.round(s / 60)
+  if (m < 60) return m + "m"
+  return Math.round(m / 60) + "h"
 }
 
 function temp(c) {
@@ -51,7 +63,7 @@ function temp(c) {
 function watts(w) {
   w = Number(w)
   if (!isFinite(w) || w <= 0) return "--"
-  return (w >= 10 ? Math.round(w) : w.toFixed(1)) + "W"
+  return w.toFixed(1) + "W"
 }
 
 function age(startedSec, nowMs) {
@@ -73,20 +85,25 @@ function ports(list) {
 
 // Builds the overlay list: Recent (newest first, stable), Pinned, then Buckets.
 // Returns flat rows: { type: "header"|"app", section, app, label, collapsed }.
-var BUCKETS = ["apps", "services", "desktop", "kernel"]
-var BUCKET_LABEL = { apps: "Apps", services: "Services", desktop: "Desktop", kernel: "Kernel" }
+var BUCKETS = ["user", "system", "desktop", "kernel"]
+var BUCKET_LABEL = { user: "User", system: "System", desktop: "Desktop", kernel: "Kernel" }
+function bucketOf(app) {
+  if (app.kind === "job" || app.bucket === "apps") return "user"
+  if (app.bucket === "services") return "system"
+  return app.bucket
+}
 
 function sections(apps, pins, filter, sortKey, collapsed) {
   var f = (filter || "").trim().toLowerCase()
   var rows = []
-  var recent = [], pinned = [], buckets = { apps: [], services: [], desktop: [], kernel: [] }
+  var recent = [], pinned = [], buckets = { user: [], system: [], desktop: [], kernel: [] }
 
   for (var i = 0; i < apps.length; i++) {
     var a = apps[i]
     if (f && !matches(a, f)) continue
     if (a.recent && (a.kind === "job" || a.bucket === "apps")) recent.push(a)
     else if (a.pinned) pinned.push(a)
-    else (buckets[a.bucket] || buckets.services).push(a)
+    else (buckets[bucketOf(a)] || buckets.system).push(a)
   }
 
   // Recent keeps the order things were started, newest first. Never by usage.

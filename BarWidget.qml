@@ -32,28 +32,14 @@ BarWidget {
 
   readonly property string samplerState: service ? String(service.samplerState || "starting") : "starting"
   readonly property bool samplerReady: samplerState === "running"
+  readonly property real cpuNow:
+    service && service.vitals && service.vitals.cpu ? Number(service.vitals.cpu.total) || 0 : -1
 
   readonly property string pressureLevel:
     service && service.pressure ? String(service.pressure.level || "calm") : "calm"
   readonly property color pressureColor: Model.pressureColor(root.pressureLevel, root.ink, root.urgent)
 
-  readonly property var cpuHistory: service && service.history ? service.history.cpu : null
-  readonly property real cpuNow:
-    service && service.vitals && service.vitals.cpu ? Number(service.vitals.cpu.total) || 0 : -1
 
-  // The last three CPU samples as 0..1 heights. At rest — no sampler, no
-  // history — the mark still draws three short bars rather than vanishing.
-  readonly property var pulseLevels: {
-    var out = [0.12, 0.12, 0.12]
-    var series = root.cpuHistory
-    if (!series || !series.length) return out
-    for (var i = 0; i < 3; i++) {
-      var idx = series.length - 3 + i
-      var raw = Number(idx >= 0 ? series[idx] : series[0])
-      out[i] = Util.clamp(isFinite(raw) ? raw / 100 : 0, 0, 1)
-    }
-    return out
-  }
 
   readonly property string percentText:
     root.samplerReady && root.cpuNow >= 0 ? Model.pct(root.cpuNow, 0) : "--"
@@ -163,7 +149,7 @@ BarWidget {
       anchors.centerIn: parent
       spacing: 0
 
-      // The pulse mark. Three bars, last three CPU samples, tinted by
+      // The mark. Three fixed bars tinted by
       // Pressure — a shape rather than a font icon, so it stays honest at
       // any bar size and never depends on a Nerd Font being present.
       Canvas {
@@ -174,7 +160,6 @@ BarWidget {
         renderStrategy: Canvas.Cooperative
 
         property color tint: root.pressureColor
-        property var levels: root.pulseLevels
 
         Behavior on tint {
           enabled: !root.reducedMotion
@@ -182,16 +167,6 @@ BarWidget {
         }
 
         onTintChanged: requestPaint()
-        onLevelsChanged: requestPaint()
-
-        // Restrained urgency: a slow breath at critical, nothing otherwise.
-        SequentialAnimation on opacity {
-          running: root.pressureLevel === "critical" && !root.reducedMotion
-          loops: Animation.Infinite
-          NumberAnimation { from: 1; to: 0.85; duration: 1000; easing.type: Easing.InOutSine }
-          NumberAnimation { from: 0.85; to: 1; duration: 1000; easing.type: Easing.InOutSine }
-          onStopped: glyph.opacity = 1
-        }
 
         onPaint: {
           var ctx = glyph.getContext("2d")
@@ -211,11 +186,12 @@ BarWidget {
           var span = Math.max(2, floorY - inset)
           var minH = Math.max(2, Math.round(span * 0.18))
 
+          // A fixed mark: three bars at rest heights. Only the colour changes,
+          // so the bar never draws attention by moving.
           ctx.fillStyle = glyph.tint
-          var levels = glyph.levels || []
+          var levels = [0.45, 1.0, 0.7]
           for (var i = 0; i < 3; i++) {
-            var level = Util.clamp(Number(levels[i]) || 0, 0, 1)
-            var barH = Math.round(minH + (span - minH) * level)
+            var barH = Math.round(minH + (span - minH) * levels[i])
             ctx.fillRect(originX + i * (barW + gap), floorY - barH, barW, barH)
           }
         }

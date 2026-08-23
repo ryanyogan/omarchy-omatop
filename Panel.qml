@@ -84,9 +84,11 @@ Panel {
   readonly property string samplerState: root.service ? String(root.service.samplerState || "starting") : "starting"
   readonly property bool running: samplerState === "running"
 
-  readonly property var vitals: root.service ? root.service.vitals : null
-  readonly property var history: root.service ? root.service.history : null
-  readonly property var apps: root.service ? root.service.apps : []
+  // Everything below reads through these three, and they are empty while the
+  // dropdown is closed, so a closed dropdown re-evaluates nothing on a tick.
+  readonly property var vitals: root.opened && root.service ? root.service.vitals : null
+  readonly property var history: root.opened && root.service ? root.service.history : null
+  readonly property var apps: root.opened && root.service ? root.service.apps : []
   readonly property string culprit: root.service ? String(root.service.culprit || "") : ""
 
   readonly property string pressureLevel:
@@ -131,7 +133,9 @@ Panel {
   // ---- Apps ---------------------------------------------------------------
 
   readonly property var pinnedRows: Model.pinnedApps(root.apps)
-  readonly property var topRows: Model.topApps(root.apps, 3)
+  // One line, not a list: a list sorted by usage reorders itself, which is
+  // exactly the jumping this dropdown avoids.
+  readonly property var busiest: Model.topApps(root.apps, 1)[0] || null
 
   // ---- Sampler state card -------------------------------------------------
 
@@ -489,26 +493,41 @@ Panel {
           }
         }
 
-        // ------------------------------------------------------- top
+        // ------------------------------------------------------- busiest
 
-        Column {
+        Item {
           width: parent.width
-          spacing: Style.spacing.sm
-          visible: root.running && root.topRows.length > 0
+          height: Style.space(24)
+          visible: root.running && root.busiest !== null
 
-          PanelSectionHeader {
-            text: "Top"
-            foreground: root.ink
-            fontFamily: root.fontFamily
+          Text {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: "BUSIEST"
+            color: root.dim
+            textFormat: Text.PlainText; font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.letterSpacing: 1.2
           }
-
-          Repeater {
-            model: root.topRows
-
-            AppRow {
-              required property var modelData
-              app: modelData
-            }
+          Text {
+            anchors.right: busiestNum.left
+            anchors.rightMargin: Style.space(10)
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.busiest ? root.busiest.name : ""
+            color: root.busiest && root.service && root.busiest.id === root.service.culprit ? root.pressureColor : root.ink
+            textFormat: Text.PlainText; font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+          Text {
+            id: busiestNum
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(52)
+            horizontalAlignment: Text.AlignRight
+            text: root.busiest ? Model.pct(root.busiest.cpu) : ""
+            color: root.ink
+            textFormat: Text.PlainText; font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
           }
         }
 
@@ -562,7 +581,8 @@ Panel {
       ColorAnimation { duration: 300 }
     }
 
-    onSamplesChanged: requestPaint()
+    onSamplesChanged: if (root.opened) requestPaint()
+    Connections { target: root; function onOpenedChanged() { if (root.opened) spark.requestPaint() } }
     onProgressChanged: requestPaint()
     onLineColorChanged: requestPaint()
 

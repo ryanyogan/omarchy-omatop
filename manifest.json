@@ -15,7 +15,7 @@
     "overlay": "Overlay.qml",
     "service": "Service.qml"
   },
-  "keepLoaded": true,
+  "keepLoaded": false,
   "barWidget": {
     "displayName": "Omatop",
     "description": "System monitor: pressure glyph, quick stats, full-screen overlay on right-click",
@@ -23,16 +23,14 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "idleRateHz": 1,
-      "activeRateHz": 4,
+      "refreshSeconds": 5,
       "reducedMotion": false,
       "showPercent": false
     },
     "schema": [
       { "key": "showPercent", "type": "boolean", "label": "Show CPU percent next to the glyph", "defaultValue": false },
       { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion", "defaultValue": false },
-      { "key": "idleRateHz", "type": "integer", "label": "Background sample rate (Hz)", "min": 1, "max": 4, "step": 1, "defaultValue": 1 },
-      { "key": "activeRateHz", "type": "integer", "label": "Sample rate while open (Hz)", "min": 1, "max": 10, "step": 1, "defaultValue": 4 }
+      { "key": "refreshSeconds", "type": "integer", "label": "Refresh every (seconds)", "min": 1, "max": 30, "step": 1, "defaultValue": 5 }
     ]
   }
 }

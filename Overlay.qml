@@ -24,8 +24,8 @@ Item {
   // ---- Interaction state ---------------------------------------------------
   property string mode: "normal"        // normal | search | confirm | help
   property string filter: ""
-  property string sortKey: "cpu"
-  property var collapsed: ({ desktop: true, kernel: true })
+  property string sortKey: "name"
+  property var collapsed: ({ system: true, desktop: true, kernel: true })
   property var expanded: ({})
   property int cursorIndex: 0
   property string cursorKey: ""
@@ -39,7 +39,7 @@ Item {
   readonly property var nowMs: service ? service.lastTickMs : 0
   readonly property bool live: service && service.samplerState === "running"
   readonly property bool animated: !(service && service.reducedMotion)
-  readonly property real tickMs: service ? 1000 / (service.openSurfaces > 0 ? service.activeRate : service.idleRate) : 1000
+  readonly property real tickMs: service ? 1000 / service.rate : 5000
   readonly property var cursorApp: {
     if (cursorIndex < 0 || cursorIndex >= rows.count) return null
     var row = rows.get(cursorIndex)
@@ -154,6 +154,7 @@ Item {
       else rows.set(j, entry)
     }
     if (allowMove) lastReorderMs = now
+    if (false) { var dbg=[]; for (var q=0;q<rows.count;q++) dbg.push(rows.get(q).type==="header" ? "["+rows.get(q).label+"]" : rows.get(q).appId.slice(0,24)); console.warn("omatop rows", allowMove, rows.count, dbg.join(" | ")) }
 
     // Keep the cursor on the same row when the list reorders under it.
     if (cursorKey) {
@@ -245,7 +246,7 @@ Item {
   }
   function foldAll(fold) {
     var next = {}
-    var all = ["recent", "pinned", "apps", "services", "desktop", "kernel"]
+    var all = ["recent", "pinned", "user", "system", "desktop", "kernel"]
     for (var i = 0; i < all.length; i++) next[all[i]] = fold
     collapsed = next
   }
@@ -353,7 +354,8 @@ Item {
     else if (t === "H") visibleRowAt(0.02)
     else if (t === "M") visibleRowAt(0.5)
     else if (t === "L") visibleRowAt(0.98)
-    else if (t === "}") jumpSection(1)
+    else if (t === "}" || event.key === Qt.Key_Tab) jumpSection(1)
+    else if (event.key === Qt.Key_Backtab) jumpSection(-1)
     else if (t === "{") jumpSection(-1)
     else if (t === "n") moveCursor(1)
     else if (t === "N") moveCursor(-1)
@@ -712,9 +714,11 @@ Item {
             Item {
               width: strips.width
               height: Style.space(14)
-              Text { x: Style.space(44); text: "2m"; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              Text { x: Style.space(44) + (strips.width - Style.space(44) - Style.space(72)) / 2 - width / 2; text: "1m"; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              Text { anchors.right: parent.right; anchors.rightMargin: Style.space(72); text: root.scrub >= 0 ? "-" + (119 - root.scrub) + "s" : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              readonly property string span: Model.span(119 * root.tickMs)
+              readonly property string half: Model.span(60 * root.tickMs)
+              Text { x: Style.space(44); text: parent.span; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { x: Style.space(44) + (strips.width - Style.space(44) - Style.space(72)) / 2 - width / 2; text: parent.half; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { anchors.right: parent.right; anchors.rightMargin: Style.space(72); text: root.scrub >= 0 ? "-" + Model.span((119 - root.scrub) * root.tickMs) : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
           }
 
@@ -839,10 +843,11 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             cacheBuffer: Style.space(400)
 
+            // Only genuine reorders animate. Inserts and removals snap: an
+            // interrupted displaced transition is how rows end up drawn on
+            // top of each other.
             move: Transition { enabled: root.animated; NumberAnimation { properties: "y"; duration: 260; easing.type: Easing.OutCubic } }
-            displaced: Transition { enabled: root.animated; NumberAnimation { properties: "y"; duration: 260; easing.type: Easing.OutCubic } }
-            add: Transition { enabled: root.animated; NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200 } }
-            remove: Transition { enabled: root.animated; NumberAnimation { property: "opacity"; to: 0; duration: 140 } }
+            moveDisplaced: Transition { enabled: root.animated; NumberAnimation { properties: "y"; duration: 260; easing.type: Easing.OutCubic } }
 
             delegate: Loader {
               id: rowLoader
@@ -988,7 +993,7 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           text: root.toast.length ? root.toast
               : (root.mode === "search" ? "type to filter   enter keep   esc clear"
-              : "j k move   enter focus   o processes   p pin   ss pause   x stop   / find   ? help")
+              : "j k move   tab section   enter focus   o processes   p pin   ss pause   x stop   / find   ? help")
           color: root.toast.length ? root.ink : root.faint
           textFormat: Text.PlainText
           font.family: root.fontFamily

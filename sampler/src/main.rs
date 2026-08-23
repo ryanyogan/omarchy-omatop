@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use vitals::{Vitals, VitalsSampler};
 
 const PROTOCOL_VERSION: u32 = 1;
-const MIN_RATE: f64 = 0.25;
+const MIN_RATE: f64 = 0.03;
 const MAX_RATE: f64 = 10.0;
 
 // ---------------------------------------------------------------------------
@@ -395,21 +395,13 @@ impl Sampler {
             self.app_hist.accumulate(&a.id, a.cpu, a.mem as f64, a.gpu);
         }
 
-        // The ring advances once per wall-clock second no matter what `rate`
-        // is, so the two-minute window stays two minutes.
+        // The ring advances once per tick: at the default 5 s refresh the
+        // 120-slot window is ten minutes, at 1 Hz it is two. The shell labels
+        // the axis from the tick interval, so nothing here needs to know.
         let live_ids: HashSet<String> = apps.iter().map(|a| a.id.clone()).collect();
-        let mut guard = 0;
-        while now.duration_since(self.last_flush) >= Duration::from_secs(1) && guard < 8 {
-            self.sys_hist.flush();
-            self.app_hist.flush(&live_ids);
-            self.last_flush += Duration::from_secs(1);
-            guard += 1;
-        }
-        if guard == 8 {
-            // We fell badly behind (suspend, or a stalled machine). Resync
-            // rather than emit a burst of interpolated seconds.
-            self.last_flush = now;
-        }
+        self.sys_hist.flush();
+        self.app_hist.flush(&live_ids);
+        self.last_flush = now;
         self.sys_hist.save_if_due(&mut self.last_save);
 
         // --- Events ---------------------------------------------------------

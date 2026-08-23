@@ -20,8 +20,8 @@ Item {
     var value = widgetSettings ? widgetSettings[name] : undefined
     return value === undefined || value === null ? fallback : value
   }
-  readonly property real idleRate: Util.clamp(Number(widgetSetting("idleRateHz", 1)) || 1, 0.25, 4)
-  readonly property real activeRate: Util.clamp(Number(widgetSetting("activeRateHz", 4)) || 4, 1, 10)
+  readonly property real refreshSeconds: Util.clamp(Number(widgetSetting("refreshSeconds", 5)) || 5, 1, 30)
+  readonly property real rate: 1 / refreshSeconds
   readonly property bool reducedMotion: widgetSetting("reducedMotion", false) === true
 
   // Paths. resolvedUrl percent-encodes, so decode before handing to a process.
@@ -151,15 +151,12 @@ Item {
     sampler.write(line + "\n")
   }
 
-  function pushRate() {
-    send("rate " + (root.openSurfaces > 0 ? root.activeRate : root.idleRate))
-  }
-  onOpenSurfacesChanged: pushRate()
-  onIdleRateChanged: pushRate()
-  onActiveRateChanged: pushRate()
+  function pushRate() { send("rate " + root.rate) }
+  onRateChanged: pushRate()
 
   function surfaceOpened() { root.openSurfaces = root.openSurfaces + 1 }
   function surfaceClosed() { root.openSurfaces = Math.max(0, root.openSurfaces - 1) }
+
 
   // ---- Tick ingestion ----------------------------------------------------
 
