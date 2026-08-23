@@ -35,7 +35,11 @@ Item {
 
   property real shown: 0
   readonly property real reading: ignition.running ? value : shown
-  readonly property real fraction: fullScale > 0 ? Math.max(0, Math.min(1, shown / fullScale)) : 0
+  // The needle glides (a transform, free). The arcs snap to the live value:
+  // animating a Shape arc re-tessellates it every frame, which at 1 Hz
+  // updates cost more than everything else in the overlay combined.
+  readonly property real needleFraction: fullScale > 0 ? Math.max(0, Math.min(1, shown / fullScale)) : 0
+  readonly property real fraction: fullScale > 0 ? Math.max(0, Math.min(1, (ignition.running ? shown : value) / fullScale)) : 0
   readonly property bool arcVisible: fraction > 0.004
 
   width: diameter
@@ -44,9 +48,11 @@ Item {
   Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
   // Live readings glide between samples rather than snap.
+  // A short glide: long enough to read as motion, short enough that at a
+  // 1 s refresh the scene is idle most of the time.
   Behavior on shown {
     enabled: dial.animated && !ignition.running
-    NumberAnimation { duration: 400; easing.type: Easing.OutCubic }
+    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
   }
   Behavior on accent { enabled: dial.animated; ColorAnimation { duration: 300 } }
 
@@ -117,7 +123,7 @@ Item {
   // Hubless needle.
   Item {
     anchors.fill: parent
-    rotation: dial.dialStart + dial.fraction * dial.dialSweep - 270
+    rotation: dial.dialStart + dial.needleFraction * dial.dialSweep - 270
     Rectangle {
       anchors.horizontalCenter: parent.horizontalCenter
       y: dial.arcWidth * 2 + Style.space(10)

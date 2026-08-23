@@ -26,6 +26,7 @@ Item {
   property string filter: ""
   property string sortKey: "name"
   property var collapsed: ({ system: true, desktop: true, kernel: true })
+  property var scales: ({})
   property var expanded: ({})
   property int cursorIndex: 0
   property string cursorKey: ""
@@ -100,6 +101,7 @@ Item {
     Qt.callLater(function() {
       if (!root.opened) return
       keys.forceActiveFocus()
+      list.positionViewAtBeginning()
       cpuDial.ignite(); memDial.ignite(); gpuDial.ignite(); tempDial.ignite()
     })
   }
@@ -124,7 +126,8 @@ Item {
   // ---- Rows: a keyed ListModel so the ListView can animate moves ----------
   ListModel { id: rows }
 
-  function rowKey(r) { return r.type === "header" ? "h:" + r.section : r.app.id }
+  // Keys carry the section: one App can sit in Offenders and in User.
+  function rowKey(r) { return r.type === "header" ? "h:" + r.section : r.section + ":" + r.app.id }
 
   // Rows reorder at most every two seconds so the list reads as "the culprit
   // rose", not as jitter. Values still update on every tick.
@@ -136,7 +139,8 @@ Item {
     var now = Date.now()
     var allowMove = forceReorder || (now - lastReorderMs > 2000)
     forceReorder = false
-    var desired = Model.sections(service.apps, service.pins, filter, sortKey, collapsed)
+    var desired = Model.sections(service.apps, service.offenders, service.pins, filter, sortKey, collapsed)
+    scales = Model.scales(desired)
     var want = {}
     for (var d = 0; d < desired.length; d++) want[rowKey(desired[d])] = true
 
@@ -167,7 +171,6 @@ Item {
       } else rows.set(j, entry)
     }
     if (allowMove) lastReorderMs = now
-    if (false) { var dbg=[]; for (var q=0;q<rows.count;q++) dbg.push(rows.get(q).type==="header" ? "["+rows.get(q).label+"]" : rows.get(q).appId.slice(0,24)); console.warn("omatop rows", allowMove, rows.count, dbg.join(" | ")) }
 
     // Keep the cursor on the same row when the list reorders under it.
     if (cursorKey) {
@@ -205,7 +208,9 @@ Item {
     if (rows.count === 0) return
     cursorIndex = Util.clamp(i, 0, rows.count - 1)
     cursorKey = rows.get(cursorIndex).key
-    list.positionViewAtIndex(cursorIndex, ListView.Contain)
+    // The first App sits under the first header; keep that header in view.
+    if (cursorIndex <= 1) list.positionViewAtBeginning()
+    else list.positionViewAtIndex(cursorIndex, ListView.Contain)
   }
 
   // Moves over App rows only; headers are skipped but remain visible.
@@ -259,7 +264,7 @@ Item {
   }
   function foldAll(fold) {
     var next = {}
-    var all = ["recent", "pinned", "user", "system", "desktop", "kernel"]
+    var all = ["recent", "offenders", "pinned", "user", "system", "desktop", "kernel"]
     for (var i = 0; i < all.length; i++) next[all[i]] = fold
     collapsed = next
   }
@@ -360,10 +365,10 @@ Item {
     else if (t === "G") { var c = parseInt(countBuffer); countBuffer = ""; if (isFinite(c) && c > 0) setCursor(c - 1); else lastApp() }
     else if (t === "z") pending = "z"
     else if (t === "s") pending = "s"
-    else if (event.key === Qt.Key_D && (event.modifiers & Qt.ControlModifier)) moveCursor(Math.max(1, Math.floor(list.height / Style.space(30) / 2)))
-    else if (event.key === Qt.Key_U && (event.modifiers & Qt.ControlModifier)) moveCursor(-Math.max(1, Math.floor(list.height / Style.space(30) / 2)))
-    else if (event.key === Qt.Key_PageDown) moveCursor(Math.max(1, Math.floor(list.height / Style.space(30))))
-    else if (event.key === Qt.Key_PageUp) moveCursor(-Math.max(1, Math.floor(list.height / Style.space(30))))
+    else if (event.key === Qt.Key_D && (event.modifiers & Qt.ControlModifier)) moveCursor(Math.max(1, Math.floor(list.height / Style.space(36) / 2)))
+    else if (event.key === Qt.Key_U && (event.modifiers & Qt.ControlModifier)) moveCursor(-Math.max(1, Math.floor(list.height / Style.space(36) / 2)))
+    else if (event.key === Qt.Key_PageDown) moveCursor(Math.max(1, Math.floor(list.height / Style.space(36))))
+    else if (event.key === Qt.Key_PageUp) moveCursor(-Math.max(1, Math.floor(list.height / Style.space(36))))
     else if (t === "H") visibleRowAt(0.02)
     else if (t === "M") visibleRowAt(0.5)
     else if (t === "L") visibleRowAt(0.98)
@@ -413,9 +418,9 @@ Item {
     Item {
       id: keys
       anchors.fill: parent
-      anchors.margins: Style.space(40)
-      anchors.topMargin: Style.space(28)
-      anchors.bottomMargin: Style.space(24)
+      anchors.margins: Math.round(Math.min(panel.width, panel.height) * 0.035)
+      anchors.topMargin: Style.space(24)
+      anchors.bottomMargin: Style.space(20)
       focus: true
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: function(event) { root.handleKey(event) }
@@ -536,12 +541,14 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         width: dials.width
         height: dials.height
-        readonly property real dialSize: Math.min(Style.space(168), Math.floor((keys.width - Style.space(48) * 3) / 4), Math.floor(keys.height * 0.24))
+        // Four dials across, sized by whichever is tighter: a quarter of the
+        // width or 30% of the height. Large screens get large instruments.
+        readonly property real dialSize: Math.max(Style.space(120), Math.min(Math.floor((keys.width - Style.space(56) * 3) / 4), Math.floor(keys.height * 0.30)))
         MouseArea { anchors.fill: parent; onClicked: {} }
 
         Row {
           id: dials
-          spacing: Style.space(48)
+          spacing: Style.space(56)
 
           Dial {
             id: cpuDial
@@ -672,7 +679,7 @@ Item {
           anchors.top: parent.top
           anchors.bottom: parent.bottom
           anchors.left: parent.left
-          width: Math.round(parent.width * 0.36)
+          width: Math.round(parent.width * 0.40)
           readonly property var v: root.service ? root.service.vitals : null
           readonly property var h: root.service ? root.service.history : null
           readonly property bool compactStrips: root.detailId !== ""
@@ -681,66 +688,72 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             onPositionChanged: function(mouse) {
-              var left = Style.space(44)
-              var right = width - Style.space(64) - Style.space(8)
-              if (mouse.x < left || mouse.x > right) { root.scrub = -1; return }
-              root.scrub = Math.round((mouse.x - left) / (right - left) * 119)
+              if (mouse.y > strips.height) { root.scrub = -1; return }
+              root.scrub = Math.round(Math.max(0, Math.min(1, mouse.x / width)) * 119)
             }
             onExited: root.scrub = -1
           }
+
+          // Strips share the ledger height equally (the detail strips take a
+          // fixed slice when an App is focused), so the graphs use every
+          // pixel the screen offers.
+          readonly property int axisHeight: Style.space(16)
+          readonly property int stripCount: 5 + (root.showGpu ? 1 : 0) + (ledger.v && ledger.v.power && ledger.v.power.available ? 1 : 0)
+          readonly property real detailSlice: root.detailApp ? Math.min(height * 0.45, Style.space(340)) : 0
+          readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - Style.space(10) * stripCount) / stripCount)
 
           Column {
             id: strips
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            spacing: Style.space(2)
+            spacing: Style.space(14)
 
-            Strip { width: strips.width; label: "cpu"; maxValue: 100
+            Strip { width: strips.width; height: ledger.stripHeight; label: "cpu"; maxValue: 100
               samples: ledger.h ? ledger.h.cpu : []; valueText: ledger.v ? Model.pct(ledger.v.cpu.total) : "--"
               formatter: function(x) { return Model.pct(x) }
-              ink: root.ink; line: root.pressureColor; fill: Qt.rgba(root.pressureColor.r, root.pressureColor.g, root.pressureColor.b, 0.14); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs
+              ink: root.ink; line: root.pressureColor; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated
               Behavior on line { enabled: root.animated; ColorAnimation { duration: 300 } } }
-            Strip { width: strips.width; label: "mem"; maxValue: 100
-              samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) : "--"
+            Strip { width: strips.width; height: ledger.stripHeight; label: "memory"; maxValue: 100
+              samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) + "  " + Model.pct(root.clusterMem) : "--"
               formatter: function(x) { return Model.pct(x) }
-              ink: root.ink; line: root.accent; fill: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs }
-            Strip { width: strips.width; visible: root.showGpu; label: "gpu"; maxValue: 100
+              ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+            Strip { width: strips.width; height: ledger.stripHeight; visible: root.showGpu; label: "gpu"; maxValue: 100
               samples: ledger.h ? ledger.h.gpu : []; valueText: ledger.v && ledger.v.gpu ? Model.pct(ledger.v.gpu.busy) : "--"
               formatter: function(x) { return Model.pct(x) }
-              ink: root.ink; line: root.accent; fill: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs }
-            Strip { width: strips.width; label: "temp"; maxValue: 100; available: ledger.v && ledger.v.cpu.temp > 0
+              ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+            Strip { width: strips.width; height: ledger.stripHeight; label: "temperature"; maxValue: 100; available: ledger.v && ledger.v.cpu.temp > 0
               samples: ledger.h ? ledger.h.temp : []; valueText: ledger.v ? Model.temp(ledger.v.cpu.temp) : "--"
               formatter: function(x) { return Model.temp(x) }
-              ink: root.ink; line: root.dim; fill: Qt.rgba(1, 1, 1, 0.06); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs }
-            Strip { width: strips.width; valueWidth: Style.space(118); label: "net"; maxValue: 0; floorValue: 1024 * 64
-              samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓" + Model.bytes(ledger.v.net.rx) + " ↑" + Model.bytes(ledger.v.net.tx) : "--"
-              formatter: function(x) { return "↓" + Model.bytes(x) }
-              ink: root.ink; line: root.dim; fill: Qt.rgba(1, 1, 1, 0.06); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs }
-            Strip { width: strips.width; valueWidth: Style.space(118); label: "disk"; maxValue: 0; floorValue: 1024 * 1024
-              samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "r" + Model.bytes(ledger.v.disk.read) + " w" + Model.bytes(ledger.v.disk.write) : "--"
-              formatter: function(x) { return "w" + Model.bytes(x) }
-              ink: root.ink; line: root.dim; fill: Qt.rgba(1, 1, 1, 0.06); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs }
-            Strip { width: strips.width; visible: ledger.v && ledger.v.power && ledger.v.power.available; label: "power"; maxValue: 0; floorValue: 30
+              ink: root.ink; line: ledger.v && ledger.v.cpu.temp >= 90 ? root.urgent : root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+            Strip { width: strips.width; height: ledger.stripHeight; label: "network"; maxValue: 0; floorValue: 1024 * 64
+              samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓ " + Model.bytes(ledger.v.net.rx) + "/s   ↑ " + Model.bytes(ledger.v.net.tx) + "/s" : "--"
+              formatter: function(x) { return "↓ " + Model.bytes(x) + "/s" }
+              ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+            Strip { width: strips.width; height: ledger.stripHeight; label: "disk"; maxValue: 0; floorValue: 1024 * 1024
+              samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "read " + Model.bytes(ledger.v.disk.read) + "/s   write " + Model.bytes(ledger.v.disk.write) + "/s" : "--"
+              formatter: function(x) { return "write " + Model.bytes(x) + "/s" }
+              ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+            Strip { width: strips.width; height: ledger.stripHeight; visible: ledger.v && ledger.v.power && ledger.v.power.available; label: "power"; maxValue: 0; floorValue: 30
               samples: ledger.h ? ledger.h.power : []; valueText: ledger.v && ledger.v.power ? Model.watts(ledger.v.power.watts) : "--"
               formatter: function(x) { return Model.watts(x) }
-              ink: root.ink; line: root.dim; fill: Qt.rgba(1, 1, 1, 0.06); dim: root.dim; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; compact: ledger.compactStrips; animated: root.animated; tickMs: root.tickMs }
+              ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
 
             Item {
               width: strips.width
-              height: Style.space(14)
+              height: ledger.axisHeight
               readonly property string span: Model.span(119 * root.tickMs)
               readonly property string half: Model.span(60 * root.tickMs)
-              Text { x: Style.space(44); text: parent.span; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              Text { x: Style.space(44) + (strips.width - Style.space(44) - Style.space(72)) / 2 - width / 2; text: parent.half; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              Text { anchors.right: parent.right; anchors.rightMargin: Style.space(72); text: root.scrub >= 0 ? "-" + Model.span((119 - root.scrub) * root.tickMs) : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { x: 0; y: Style.space(2); text: "-" + parent.span; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { x: strips.width / 2 - width / 2; y: Style.space(2); text: "-" + parent.half; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { anchors.right: parent.right; y: Style.space(2); text: root.scrub >= 0 ? "-" + Model.span((119 - root.scrub) * root.tickMs) : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
           }
 
@@ -757,6 +770,9 @@ Item {
             Behavior on opacity { enabled: root.animated; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
             readonly property var app: root.detailApp
             readonly property var d: root.service && root.service.detail && root.service.detail.id === root.detailId ? root.service.detail : null
+            // Three strips share whatever the slice leaves after the title and the facts.
+            readonly property int factsHeight: Style.space(18) * 4 + Style.space(6)
+            readonly property real stripHeight: Math.max(Style.space(30), (height - Style.space(30) - factsHeight - Style.space(4) * 6) / 3)
 
             Column {
               anchors.fill: parent
@@ -777,21 +793,21 @@ Item {
                   color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption
                 }
               }
-              Strip { width: parent.width; label: "cpu"; maxValue: 0; floorValue: 10
+              Strip { width: parent.width; height: detailPane.stripHeight; label: "cpu"; maxValue: 0; floorValue: 10
                 samples: detailPane.d ? detailPane.d.cpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.cpu) : ""
                 formatter: function(x) { return Model.pct(x) }
-                ink: root.ink; line: root.accent; fill: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14); dim: root.dim; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; tickMs: root.tickMs }
-              Strip { width: parent.width; label: "mem"; maxValue: 0; floorValue: 64 * 1024 * 1024
+                ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              Strip { width: parent.width; height: detailPane.stripHeight; label: "memory"; maxValue: 0; floorValue: 64 * 1024 * 1024
                 samples: detailPane.d ? detailPane.d.mem : []; valueText: detailPane.app ? Model.bytes(detailPane.app.mem) : ""
                 formatter: function(x) { return Model.bytes(x) }
-                ink: root.ink; line: root.accent; fill: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14); dim: root.dim; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; tickMs: root.tickMs }
-              Strip { width: parent.width; visible: root.showGpu && detailPane.app && detailPane.app.gpu >= 0; label: "gpu"; maxValue: 0; floorValue: 10
+                ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              Strip { width: parent.width; height: detailPane.stripHeight; visible: root.showGpu && detailPane.app && detailPane.app.gpu >= 0; label: "gpu"; maxValue: 0; floorValue: 10
                 samples: detailPane.d ? detailPane.d.gpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.gpu) : ""
                 formatter: function(x) { return Model.pct(x) }
-                ink: root.ink; line: root.accent; fill: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14); dim: root.dim; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; tickMs: root.tickMs }
+                ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
               Column {
                 width: parent.width
                 spacing: Style.space(2)
@@ -845,12 +861,18 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             height: Style.space(18)
+            Text {
+              anchors.left: parent.left
+              anchors.leftMargin: Style.spacing.rowPaddingX
+              text: "Offenders are the top " + (root.service ? root.service.offenderCpuCount : 10) + " by average cpu and top " + (root.service ? root.service.offenderMemCount : 6) + " by memory over 30 s, listed alphabetically"
+              color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+            }
             Row {
               anchors.right: parent.right
               anchors.rightMargin: Style.spacing.rowPaddingX
-              Text { width: Style.space(58); horizontalAlignment: Text.AlignRight; text: "cpu"; color: root.sortKey === "cpu" ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1.5; font.capitalization: Font.AllUppercase }
-              Text { width: Style.space(58); horizontalAlignment: Text.AlignRight; text: "mem"; color: root.sortKey === "mem" ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1.5; font.capitalization: Font.AllUppercase }
-              Text { width: root.showGpu ? Style.space(48) : 0; visible: root.showGpu; horizontalAlignment: Text.AlignRight; text: "gpu"; color: root.sortKey === "gpu" ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1.5; font.capitalization: Font.AllUppercase }
+              spacing: Style.space(14)
+              Text { width: Style.space(96) + Style.space(8) + Style.space(54); horizontalAlignment: Text.AlignRight; text: "cpu"; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1.5; font.capitalization: Font.AllUppercase }
+              Text { width: Style.space(96) + Style.space(8) + Style.space(54); horizontalAlignment: Text.AlignRight; text: "memory"; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1.5; font.capitalization: Font.AllUppercase }
             }
           }
 
@@ -859,7 +881,7 @@ Item {
           ListView {
             id: list
             anchors.top: columns.bottom
-            anchors.topMargin: Style.space(4)
+            anchors.topMargin: Style.space(8)
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -869,11 +891,9 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             cacheBuffer: Style.space(400)
 
-            // Only genuine reorders animate. Inserts and removals snap: an
-            // interrupted displaced transition is how rows end up drawn on
-            // top of each other.
-            move: Transition { enabled: root.animated; NumberAnimation { properties: "y"; duration: 260; easing.type: Easing.OutCubic } }
-            moveDisplaced: Transition { enabled: root.animated; NumberAnimation { properties: "y"; duration: 260; easing.type: Easing.OutCubic } }
+            // No transitions. Rows are alphabetical and membership changes at
+            // most every 30 s; animated moves interrupted by the next tick
+            // left delegates drawn at stale positions.
 
             delegate: Loader {
               id: rowLoader
@@ -887,19 +907,19 @@ Item {
               required property string appId
               width: list.width
               sourceComponent: type === "header" ? headerRow : appRow
-              height: item ? item.implicitHeight : Style.space(30)
+              height: item ? item.implicitHeight : Style.space(36)
 
               Component {
                 id: headerRow
                 Item {
-                  implicitHeight: Style.space(rowLoader.index === 0 ? 22 : 30)
+                  implicitHeight: Style.space(rowLoader.index === 0 ? 26 : 32)
                   Text {
                     anchors.left: parent.left
                     anchors.leftMargin: Style.spacing.rowPaddingX
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: Style.space(4)
                     text: (rowLoader.collapsed ? "▸ " : "") + rowLoader.label + "  " + rowLoader.count
-                    color: rowLoader.section === "recent" ? root.ink : root.dim
+                    color: rowLoader.section === "recent" || rowLoader.section === "offenders" ? root.ink : root.dim
                     textFormat: Text.PlainText
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -914,7 +934,7 @@ Item {
               Component {
                 id: appRow
                 AppRow {
-                  app: root.service ? root.service.appsById[rowLoader.appId] || null : null
+                  app: root.service ? (rowLoader.section === "offenders" ? root.service.offenders.find(function(a) { return a.id === rowLoader.appId }) || null : root.service.appsById[rowLoader.appId] || null) : null
                   hasCursor: rowLoader.index === root.cursorIndex
                   isCulprit: root.service && root.service.culprit === rowLoader.appId
                   isDetail: root.detailId === rowLoader.appId
@@ -924,9 +944,12 @@ Item {
                   ink: root.ink; dim: root.dim; faint: root.faint; hairline: root.hairline
                   selectedBackground: root.selectedBackground; selectedText: root.ink
                   pressureColor: root.pressureColor
+                  accent: root.accent
                   fontFamily: root.fontFamily
                   animated: root.animated
-                  showGpu: root.showGpu
+                  useAverages: rowLoader.section === "offenders"
+                  cpuScale: root.scales[rowLoader.section] ? root.scales[rowLoader.section].cpu : 10
+                  memScale: root.scales[rowLoader.section] ? root.scales[rowLoader.section].mem : 1024 * 1024 * 1024
                   cornerRadius: Style.space(6)
 
                   MouseArea {

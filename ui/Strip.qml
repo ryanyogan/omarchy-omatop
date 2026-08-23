@@ -1,47 +1,39 @@
 import QtQuick
+import QtQuick.Shapes
 import qs.Commons
 
-// One row of the ledger: label, current value, and a timeline on the shared
-// two-minute axis. Several strips stacked with the same `samples` length and
-// the same `scrub` read as one instrument.
+// One row of the ledger: a full-width timeline on the shared axis, with the
+// label and the live value riding its top edge. Several strips stacked with
+// the same `capacity` and `scrub` read as one instrument.
+//
+// Drawn with Shapes, not Canvas: a 120-point polyline is tessellated on the
+// GPU in microseconds, where rasterising a 3000x440 canvas in software every
+// second was the single largest cost of the open overlay.
 Item {
   id: root
 
   property string label: ""
   property var samples: []          // oldest first, length <= capacity
   property int capacity: 120
-  property real maxValue: 100       // axis ceiling; pass 0 to autoscale
+  property real maxValue: 100       // axis ceiling; 0 = autoscale
   property real floorValue: 0       // autoscale never goes below this ceiling
   property string valueText: ""     // live value, preformatted
   property var formatter: null      // function(v) -> string, for scrubbed values
   property int scrub: -1            // -1 live, else sample index from the left
-  property color ink: Color.foreground
+  property color ink: "white"
   property color line: ink
-  property color fill: Util.alpha(ink, 0.10)
-  property color dim: Qt.darker(ink, 1.5)
-  property color hairline: Util.alpha(ink, 0.12)
+  property color dim: Qt.rgba(1, 1, 1, 0.55)
+  property color faint: Qt.rgba(1, 1, 1, 0.3)
+  property color hairline: Qt.rgba(1, 1, 1, 0.1)
   property string fontFamily: Style.font.family
-  property bool compact: false      // header-only height while an App is focused
+  property bool compact: false
   property bool animated: true
-  property real tickMs: 5000        // interval the sampler is running at (axis labels only)
   property bool available: true
 
-  readonly property int labelWidth: Style.space(44)
-  property int valueWidth: Style.space(64)
-  readonly property int fullHeight: Style.space(46)
-  readonly property int compactHeight: Style.space(26)
+  readonly property int headerHeight: Style.space(18)
 
-  implicitHeight: compact ? compactHeight : fullHeight
-  Behavior on implicitHeight { enabled: root.animated; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
   clip: true
   opacity: available ? 1 : 0.35
-
-  // One repaint per tick. No per-frame slide: ten canvases rasterising at
-  // 120 Hz was the single largest cost of the whole plugin.
-  onSamplesChanged: canvas.requestPaint()
-  onScrubChanged: canvas.requestPaint()
-  onWidthChanged: canvas.requestPaint()
-  onMaxValueChanged: canvas.requestPaint()
 
   readonly property real scale: {
     if (maxValue > 0) return maxValue
@@ -52,122 +44,146 @@ Item {
 
   readonly property string shownValue: {
     if (scrub >= 0 && samples && samples.length) {
-      var offset = samples.length - capacity
-      var idx = scrub + offset
+      var idx = scrub - (capacity - samples.length)
       if (idx >= 0 && idx < samples.length) return formatter ? formatter(samples[idx]) : String(Math.round(samples[idx]))
       return "--"
     }
     return valueText
   }
 
+  // Geometry, recomputed once per tick (and on resize).
+  readonly property real plotTop: 3
+  readonly property real plotFloor: Math.max(plotTop + 2, plot.height - 3)
+  readonly property real step: plot.width / (capacity - 1)
+  readonly property int count: samples ? samples.length : 0
+  readonly property real startX: plot.width - (count - 1) * step
+  function yOf(v) { return plotFloor - Math.min(1, Math.max(0, v) / scale) * (plotFloor - plotTop) }
+
+  readonly property var points: {
+    var out = []
+    var data = samples || []
+    for (var i = 0; i < data.length; i++) out.push(Qt.point(startX + i * step, yOf(data[i])))
+    return out
+  }
+  readonly property var fillPoints: {
+    if (points.length < 2) return []
+    var out = points.slice()
+    out.push(Qt.point(points[points.length - 1].x, plotFloor))
+    out.push(Qt.point(points[0].x, plotFloor))
+    out.push(points[0])
+    return out
+  }
+  readonly property point lastPoint: points.length ? points[points.length - 1] : Qt.point(-10, -10)
+
   Text {
-    id: labelText
     x: 0
-    y: Style.space(4)
-    width: root.labelWidth
+    y: 0
     text: root.label
     color: root.dim
-    textFormat: Text.PlainText; font.family: root.fontFamily
+    textFormat: Text.PlainText
+    font.family: root.fontFamily
     font.pixelSize: Style.font.caption
-    font.letterSpacing: 1.2
+    font.bold: true
+    font.letterSpacing: 1.5
     font.capitalization: Font.AllUppercase
   }
 
   Text {
-    id: valueLabel
     anchors.right: parent.right
-    y: Style.space(1)
-    width: root.valueWidth
-    horizontalAlignment: Text.AlignRight
+    y: 0
     text: root.shownValue
-    color: root.scrub >= 0 ? root.dim : root.ink
-    textFormat: Text.PlainText; font.family: root.fontFamily
-    font.pixelSize: root.compact ? Style.font.subtitle : Style.font.title
-    font.weight: Font.DemiBold
-    Behavior on color { enabled: root.animated; ColorAnimation { duration: 160 } }
+    color: root.scrub >= 0 ? root.ink : root.line
+    textFormat: Text.PlainText
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    font.bold: true
   }
 
-  Canvas {
-    id: canvas
-    x: root.labelWidth
-    width: parent.width - root.labelWidth - root.valueWidth - Style.space(8)
-    y: root.compact ? Style.space(6) : Style.space(20)
-    height: root.compact ? Style.space(14) : parent.height - y - Style.space(2)
-    Behavior on y { enabled: root.animated; NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-    renderStrategy: Canvas.Cooperative
-    onHeightChanged: requestPaint()
+  Item {
+    id: plot
+    x: 0
+    y: root.headerHeight
+    width: parent.width
+    height: Math.max(4, parent.height - root.headerHeight)
 
-    onPaint: {
-      var ctx = getContext("2d")
-      ctx.reset()
-      var w = width, h = height
-      var data = root.samples || []
-      var n = data.length
-      var cap = root.capacity
-      var step = w / (cap - 1)
-      var sc = root.scale
-
-      // Baseline hairline.
-      ctx.strokeStyle = root.hairline
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(0, h - 0.5)
-      ctx.lineTo(w, h - 0.5)
-      ctx.stroke()
-
-      if (n < 2) return
-
-      // Right-align the series: the newest sample sits at the right edge.
-      var startX = w - (n - 1) * step
-
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(0, 0, w, h)
-      ctx.clip()
-
-      ctx.beginPath()
-      var x0 = startX, y0 = h - Math.min(1, data[0] / sc) * (h - 2)
-      ctx.moveTo(x0, h)
-      ctx.lineTo(x0, y0)
-      for (var i = 1; i < n; i++) {
-        var x = startX + i * step
-        var y = h - Math.min(1, Math.max(0, data[i]) / sc) * (h - 2)
-        ctx.lineTo(x, y)
+    // Guides: baseline and a dashed half-way line.
+    Rectangle { x: 0; y: Math.round(root.plotFloor); width: parent.width; height: 1; color: root.hairline }
+    Row {
+      x: 0
+      y: Math.round((root.plotTop + root.plotFloor) / 2)
+      spacing: 4
+      clip: true
+      width: parent.width
+      Repeater {
+        model: Math.ceil(plot.width / 6)
+        Rectangle { width: 2; height: 1; color: root.hairline }
       }
-      ctx.lineTo(startX + (n - 1) * step, h)
-      ctx.closePath()
-      ctx.fillStyle = root.fill
-      ctx.fill()
+    }
 
-      ctx.beginPath()
-      ctx.moveTo(x0, y0)
-      for (var j = 1; j < n; j++) {
-        ctx.lineTo(startX + j * step, h - Math.min(1, Math.max(0, data[j]) / sc) * (h - 2))
-      }
-      ctx.strokeStyle = root.line
-      ctx.lineWidth = 1.5
-      ctx.lineJoin = "round"
-      ctx.stroke()
+    Shape {
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+      visible: root.points.length >= 2
 
-      // Scrubber: vertical hairline plus a dot on the series.
-      if (root.scrub >= 0) {
-        var sx = root.scrub * step
-        ctx.strokeStyle = Util.alpha(root.ink, 0.4)
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.moveTo(Math.round(sx) + 0.5, 0)
-        ctx.lineTo(Math.round(sx) + 0.5, h)
-        ctx.stroke()
-        var idx = root.scrub - (cap - n)
-        if (idx >= 0 && idx < n) {
-          var sy = h - Math.min(1, Math.max(0, data[idx]) / sc) * (h - 2)
-          ctx.fillStyle = root.ink
-          ctx.beginPath()
-          ctx.arc(sx, sy, 2.5, 0, Math.PI * 2)
-          ctx.fill()
+      // Fill: the series colour fading to nothing at the baseline.
+      ShapePath {
+        strokeColor: "transparent"
+        fillGradient: LinearGradient {
+          x1: 0; y1: root.plotTop
+          x2: 0; y2: root.plotFloor
+          GradientStop { position: 0; color: Qt.rgba(root.line.r, root.line.g, root.line.b, 0.26) }
+          GradientStop { position: 1; color: Qt.rgba(root.line.r, root.line.g, root.line.b, 0.0) }
         }
+        PathPolyline { path: root.fillPoints }
       }
-      ctx.restore()
+
+      // Glow under the line.
+      ShapePath {
+        strokeColor: Qt.rgba(root.line.r, root.line.g, root.line.b, 0.22)
+        strokeWidth: 5
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+        PathPolyline { path: root.points }
+      }
+
+      // The line.
+      ShapePath {
+        strokeColor: root.line
+        strokeWidth: 1.5
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+        PathPolyline { path: root.points }
+      }
+    }
+
+    // Newest sample: a dot with a halo.
+    Rectangle {
+      visible: root.points.length >= 2
+      x: root.lastPoint.x - width / 2
+      y: root.lastPoint.y - height / 2
+      width: 10; height: 10; radius: 5
+      color: Qt.rgba(root.line.r, root.line.g, root.line.b, 0.25)
+      Rectangle { anchors.centerIn: parent; width: 4; height: 4; radius: 2; color: root.line }
+    }
+
+    // Scrubber.
+    Rectangle {
+      visible: root.scrub >= 0
+      x: Math.round(root.scrub * root.step)
+      y: 0
+      width: 1
+      height: parent.height
+      color: Qt.rgba(root.ink.r, root.ink.g, root.ink.b, 0.45)
+    }
+    Rectangle {
+      readonly property int idx: root.scrub - (root.capacity - root.count)
+      visible: root.scrub >= 0 && idx >= 0 && idx < root.count
+      x: Math.round(root.scrub * root.step) - 3
+      y: (visible ? root.yOf(root.samples[idx]) : 0) - 3
+      width: 6; height: 6; radius: 3
+      color: root.ink
     }
   }
 }

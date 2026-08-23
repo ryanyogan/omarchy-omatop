@@ -93,7 +93,7 @@ function bucketOf(app) {
   return app.bucket
 }
 
-function sections(apps, pins, filter, sortKey, collapsed) {
+function sections(apps, offenders, pins, filter, sortKey, collapsed) {
   var f = (filter || "").trim().toLowerCase()
   var rows = []
   var recent = [], pinned = [], buckets = { user: [], system: [], desktop: [], kernel: [] }
@@ -104,6 +104,11 @@ function sections(apps, pins, filter, sortKey, collapsed) {
     if (a.recent && (a.kind === "job" || a.bucket === "apps")) recent.push(a)
     else if (a.pinned) pinned.push(a)
     else (buckets[bucketOf(a)] || buckets.system).push(a)
+  }
+  var heavy = []
+  for (var o = 0; o < (offenders ? offenders.length : 0); o++) {
+    if (f && !matches(offenders[o], f)) continue
+    heavy.push(offenders[o])
   }
 
   // Recent keeps the order things were started, newest first. Never by usage.
@@ -119,6 +124,7 @@ function sections(apps, pins, filter, sortKey, collapsed) {
   }
 
   push("recent", "Recent", recent)
+  push("offenders", "Offenders", heavy)
   push("pinned", "Pinned", pinned)
   for (var b = 0; b < BUCKETS.length; b++) {
     var list = buckets[BUCKETS[b]]
@@ -159,6 +165,23 @@ function topApps(apps, n) {
 
 function pinnedApps(apps) {
   return apps.filter(function(a) { return a.pinned }).sort(byName)
+}
+
+// Meter scales per section: the worst value in the section sets the full
+// bar, with a floor so a quiet machine does not show every bar full.
+function scales(rows) {
+  var out = {}
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i]
+    if (r.type !== "app") continue
+    var s = out[r.section] || (out[r.section] = { cpu: 5, mem: 256 * 1024 * 1024 })
+    var avg = r.section === "offenders"
+    var c = avg && r.app.avgCpu !== undefined ? r.app.avgCpu : r.app.cpu
+    var mm = avg && r.app.avgMem !== undefined ? r.app.avgMem : r.app.mem
+    if (c > s.cpu) s.cpu = c
+    if (mm > s.mem) s.mem = mm
+  }
+  return out
 }
 
 // ---- Pressure ---------------------------------------------------------------

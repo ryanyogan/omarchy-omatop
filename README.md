@@ -8,9 +8,11 @@ A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. 
 
 **In the bar.** A small fixed mark. It stays the colour of your theme while the machine is calm and shifts toward the urgent colour when the kernel reports real pressure. It never moves. Left click opens the quick view, right click opens the cluster.
 
-**The quick view.** CPU, memory, GPU and temperature with ten minute sparklines, net and power, the Apps you pinned, and one line naming the busiest App. Nothing in it reorders. Press `o` to jump to the cluster.
+**The quick view.** CPU, memory, GPU and temperature sparklines, net and power, the Apps you pinned, and one line naming the busiest App. Nothing in it reorders. Press `o` to jump to the cluster.
 
 **The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then track live: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared ten minute axis, so a spike in one lines up with a spike in another. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
+
+**Offenders, without the jumping.** The panel you actually read: the top Apps by 30 second average CPU and memory, listed alphabetically with themed icons and meter bars. Membership is re-picked at most every 30 seconds, so the set is stable and the numbers move inside it. No row ever leaps to the top because something sneezed.
 
 **Apps, not PIDs.** One row per application (Chromium is one row, not forty), alphabetical inside User, System, Desktop and Kernel sections. Tab jumps between sections. Rows never reorder by usage, so what you are looking at stays where it is. Focus a row and the dials re-point at that App: the needles glide from the machine's values to Chromium's, and its own timelines slide into the ledger on the same axis. Press `o` to unfold its processes.
 
@@ -53,7 +55,7 @@ o.bind("SUPER + CTRL + M", "System monitor", "omarchy-shell shell toggle ryanyog
 
 ## How it works
 
-A Rust sampler (`sampler/`) runs as a shell service, reads `/proc`, `/sys` and cgroup v2 every five seconds (configurable), keeps 120 samples of history, and streams one JSON line per tick. The QML side only renders. Apps are systemd scopes, so accounting uses the kernel's own per cgroup counters: shared pages count once and short lived processes are not missed. Jobs are POSIX process groups on a terminal. Ports come from joining `/proc/net/tcp` with each process's socket inodes. GPU per App comes from DRM fdinfo.
+A Rust sampler (`sampler/`) runs as a shell service, reads `/proc`, `/sys` and cgroup v2 every second (configurable), keeps 120 samples of history, and streams one JSON line per tick. The QML side only renders. Apps are systemd scopes, so accounting uses the kernel's own per cgroup counters: shared pages count once and short lived processes are not missed. Jobs are POSIX process groups on a terminal. Ports come from joining `/proc/net/tcp` with each process's socket inodes. GPU per App comes from DRM fdinfo.
 
 The vocabulary lives in [CONTEXT.md](CONTEXT.md), the wire contract in [docs/sampler-protocol.md](docs/sampler-protocol.md).
 
@@ -63,7 +65,7 @@ Show CPU percent next to the glyph, reduce motion, and the refresh interval, all
 
 ## Cost
 
-Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`): with nothing open the plugin adds about a quarter of a percent of one core and 10 MiB; the sampler sends a 790 byte tick every five seconds while nothing is open and only sends the full App list while a surface is looking at it.
+Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`): with nothing open the plugin adds about a quarter of a percent of one core and 10 MiB; the sampler sends a 790 byte tick each refresh while nothing is open and only sends the full App list while a surface is looking at it.
 
 ## License
 

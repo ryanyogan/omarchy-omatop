@@ -86,6 +86,8 @@ struct Tick<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     history: Option<HistoryOut>,
     apps: &'a [App],
+    /// True when `apps` is only the offenders, not the whole machine.
+    lean: bool,
     processes: HashMap<&'a str, &'a [ProcRow]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<DetailOut>,
@@ -423,6 +425,25 @@ impl Sampler {
         let p = pressure(&v.psi, v.cpu.temp, v.swap_in);
         let culprit_id = culprit(&apps, &p);
 
+        // Lean ticks still carry the offenders: the top Apps by CPU and by
+        // memory. That keeps the shell's rolling averages warm while nothing
+        // is open, so the offenders panel is right the moment it appears.
+        let lean_apps: Vec<App> = if self.lean {
+            let mut by_cpu: Vec<&App> = apps.iter().filter(|a| a.bucket != "kernel").collect();
+            by_cpu.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+            let mut by_mem: Vec<&App> = apps.iter().filter(|a| a.bucket != "kernel").collect();
+            by_mem.sort_by(|a, b| b.mem.cmp(&a.mem));
+            let mut picked: Vec<&App> = Vec::new();
+            for a in by_cpu.iter().take(16).chain(by_mem.iter().take(10)) {
+                if !picked.iter().any(|p| p.id == a.id) {
+                    picked.push(a);
+                }
+            }
+            picked.into_iter().map(|a| a.clone()).collect()
+        } else {
+            Vec::new()
+        };
+
         let mut processes = HashMap::new();
         if let Some(d) = self.detail.as_deref() {
             if !detail_rows.is_empty() {
@@ -464,7 +485,8 @@ impl Sampler {
             // Lean ticks (nothing open in the shell) carry vitals, pressure and
             // the culprit only: the bar glyph needs nothing else, and the
             // shell should not parse 30 KB of Apps nobody is looking at.
-            apps: if self.lean { &[] } else { &apps },
+            apps: if self.lean { &lean_apps } else { &apps },
+            lean: self.lean,
             processes,
             detail,
             events,

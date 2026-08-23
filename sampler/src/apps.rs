@@ -19,7 +19,7 @@ const MAX_CMD_CHARS: usize = 200;
 // Wire shapes
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct App {
     pub id: String,

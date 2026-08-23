@@ -20,7 +20,7 @@ Item {
     var value = widgetSettings ? widgetSettings[name] : undefined
     return value === undefined || value === null ? fallback : value
   }
-  readonly property real refreshSeconds: Util.clamp(Number(widgetSetting("refreshSeconds", 5)) || 5, 1, 30)
+  readonly property real refreshSeconds: Util.clamp(Number(widgetSetting("refreshSeconds", 1)) || 1, 1, 30)
   readonly property real rate: 1 / refreshSeconds
   readonly property bool reducedMotion: widgetSetting("reducedMotion", false) === true
 
@@ -50,6 +50,70 @@ Item {
   property var processes: ({})
   property int tickCount: 0
   property double lastTickMs: 0
+
+  // Rolling averages per App (30 s time constant) so "who is hurting the
+  // machine" does not flicker with every sample. Keyed by App id.
+  property var averages: ({})
+  readonly property real averageTau: 30
+  function updateAverages(list, dt) {
+    var alpha = Math.min(1, dt / root.averageTau)
+    var now = Date.now()
+    var avg = root.averages
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i]
+      var e = avg[a.id]
+      if (!e) avg[a.id] = { cpu: a.cpu, mem: a.mem, seen: now }
+      else { e.cpu += (a.cpu - e.cpu) * alpha; e.mem += (a.mem - e.mem) * alpha; e.seen = now }
+    }
+    // Forget Apps not seen for five minutes.
+    if (now - root.lastPrune > 60000) {
+      for (var id in avg) if (now - avg[id].seen > 300000) delete avg[id]
+      root.lastPrune = now
+    }
+    root.averages = avg
+  }
+  property double lastPrune: 0
+
+  // Offenders: the Apps worth watching, chosen by average CPU and memory.
+  // Membership is re-picked at most every 30 s (or when a surface opens), so
+  // the panel is a stable set whose numbers update, not a list that jumps.
+  property var offenders: []
+  property var offenderIds: []
+  property double lastPick: 0
+  readonly property int offenderCpuCount: 10
+  readonly property int offenderMemCount: 6
+  function refreshOffenders(incoming, lean) {
+    var now = Date.now()
+    var pool = lean ? incoming : root.apps
+    if (root.offenderIds.length === 0 || now - root.lastPick > 30000) {
+      var cands = pool.filter(function(a) { return a.bucket !== "kernel" })
+      var byCpu = cands.slice().sort(function(x, y) { return avgOf(y).cpu - avgOf(x).cpu })
+      var byMem = cands.slice().sort(function(x, y) { return avgOf(y).mem - avgOf(x).mem })
+      var ids = [], seen = {}
+      var take = function(list, n) { for (var i = 0; i < list.length && n > 0; i++) { var id = list[i].id; if (!seen[id]) { seen[id] = true; ids.push(id); n-- } } }
+      take(byCpu, root.offenderCpuCount)
+      take(byMem, root.offenderMemCount)
+      root.offenderIds = ids
+      root.lastPick = now
+    }
+    var byIdNow = {}
+    for (var k = 0; k < incoming.length; k++) byIdNow[incoming[k].id] = incoming[k]
+    var out = []
+    for (var j = 0; j < root.offenderIds.length; j++) {
+      var id2 = root.offenderIds[j]
+      var app = byIdNow[id2] || root.appsById[id2]
+      if (!app) continue
+      var av = avgOf(app)
+      app.avgCpu = av.cpu
+      app.avgMem = av.mem
+      app.pinned = Model.isPinned(root.pins, app)
+      out.push(app)
+    }
+    out.sort(Model.byName)
+    root.offenders = out
+  }
+  function avgOf(a) { var e = root.averages[a.id]; return e ? e : { cpu: a.cpu, mem: a.mem } }
+  function repickOffenders() { root.lastPick = 0; root.refreshOffenders(root.apps, false) }
 
   // Pins are identities (App names), not PIDs. Persisted to stateFile.
   property var pins: []
@@ -155,7 +219,7 @@ Item {
   function pushRate() { send("rate " + root.rate) }
   onRateChanged: pushRate()
 
-  function surfaceOpened() { root.openSurfaces = root.openSurfaces + 1 }
+  function surfaceOpened() { root.openSurfaces = root.openSurfaces + 1; root.repickOffenders() }
   function surfaceClosed() { root.openSurfaces = Math.max(0, root.openSurfaces - 1) }
   // Nothing open: lean ticks (vitals + pressure only, ~700 bytes). Something
   // opens: full ticks, and one right now so the surface never shows stale data.
@@ -184,18 +248,24 @@ Item {
     root.detail = data.detail || null
     root.processes = data.processes || ({})
 
-    var lean = !Array.isArray(data.apps) || (data.apps.length === 0 && root.openSurfaces === 0)
-    var list = lean ? root.apps : data.apps
-    var byId = lean ? root.appsById : {}
+    // Lean ticks carry only the offenders (top CPU and memory). Keep the last
+    // full App list for the surfaces, but feed every tick into the averages.
+    var lean = data.lean === true
+    var incoming = Array.isArray(data.apps) ? data.apps : []
+    root.updateAverages(incoming, Number(data.interval) || 1)
     if (!lean) {
-      for (var i = 0; i < list.length; i++) {
-        var a = list[i]
+      var byId = {}
+      for (var i = 0; i < incoming.length; i++) {
+        var a = incoming[i]
         a.pinned = Model.isPinned(root.pins, a)
+        a.avgCpu = root.averages[a.id] ? root.averages[a.id].cpu : a.cpu
+        a.avgMem = root.averages[a.id] ? root.averages[a.id].mem : a.mem
         byId[a.id] = a
       }
-      root.apps = list
+      root.apps = incoming
       root.appsById = byId
     }
+    root.refreshOffenders(incoming, lean)
     root.tickCount = root.tickCount + 1
     root.lastTickMs = data.t || Date.now()
 
