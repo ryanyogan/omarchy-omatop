@@ -86,11 +86,21 @@ Item {
     if (screen) panel.screen = screen
     if (opened) return
     opened = true
+    // A fresh open is a fresh session: no filter, folds, focus or cursor
+    // survive from last time, even if this instance somehow did.
     mode = "normal"
     pending = ""
     countBuffer = ""
     scrub = -1
     toast = ""
+    filter = ""
+    sortKey = "name"
+    detailId = ""
+    expanded = ({})
+    collapsed = ({ system: true, desktop: true, kernel: true })
+    cursorIndex = 0
+    cursorKey = ""
+    rows.clear()
     if (service) {
       service.surfaceOpened()
       if (service.samplerState === "missing") service.startSampler()
@@ -116,8 +126,11 @@ Item {
     detailId = ""
     confirmApp = null
     mode = "normal"
-    // The shell destroys this overlay on hide (keepLoaded is false). Ask the
-    // JS engine to collect what it left behind rather than keeping it around.
+    // Every close path must reach the shell, or the loader keeps this
+    // instance mounted invisibly and the next summon reopens it with stale
+    // rows. Esc and the scrim click land here; shell.hide() lands here too,
+    // and the opened guard above makes the round trip idempotent.
+    if (shell && typeof shell.hide === "function") Qt.callLater(function() { shell.hide("ryanyogan.omatop") })
     Qt.callLater(function() { gc() })
   }
 
