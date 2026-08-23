@@ -4,6 +4,8 @@ A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. 
 
 ![Omatop overlay: dial cluster, aligned timelines, app list](preview.png)
 
+Thirty seconds of it working for a living: the chip shading amber under real load, the quick view, the overlay tour with vim keys and the port search, and a live theme switch. [Watch the demo](assets/demo.mp4).
+
 ## What you get
 
 **In the bar.** A small chip mark. It wears your theme foreground while the machine is calm, then shades amber, orange and red as the kernel reports real pressure. It never moves; the colour is the whole signal. Left click opens the quick view, right click opens the cluster.
