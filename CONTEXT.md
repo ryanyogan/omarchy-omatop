@@ -37,9 +37,10 @@ Identity is the App's name, not its PID.
 
 **Bucket**
 One of four structural groups every App belongs to, derived from where it
-runs: Apps (things you launched), Desktop (compositor, shell, portals,
-audio), Services (user and system service units), Kernel (kernel threads).
-Desktop is read-only: no Actions.
+runs: User (things you launched, including Jobs), System (user and system
+service units), Desktop (compositor, shell, portals, audio), Kernel (kernel
+threads). Desktop is read-only: no Actions. The list is alphabetical inside
+each Bucket and never re-sorts by usage.
 
 **Tag**
 An optional semantic label on an App (Browser, Development, Media, ...),
@@ -51,9 +52,9 @@ GPU busy, GPU temperature, VRAM, disk throughput, network throughput,
 power draw, fan speed.
 
 **History**
-The last two minutes of every Vital and of every App's CPU, memory and GPU,
-kept whether or not the overlay is open. Opening the overlay after a spike
-shows the spike.
+The last 120 samples of every Vital and of every App's CPU, memory and GPU
+(ten minutes at the default five second refresh), kept whether or not the
+overlay is open. Opening the overlay after a spike shows the spike.
 
 **Pressure**
 The derived state of the machine: Calm, Busy, or Critical. Computed from the

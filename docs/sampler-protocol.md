@@ -10,13 +10,15 @@ Vocabulary is defined in `CONTEXT.md`. Field names below use it.
 
 | Command | Effect |
 |---|---|
-| `rate <hz>` | set tick rate (float, 0.25..10). Default 1. |
+| `rate <hz>` | set tick rate (float, 0.03..10). Default 1; the shell sends 0.2 (every 5 s). |
 | `detail <appId>` | include `detail` (that App's History) in every tick. `detail -` clears. |
 | `stop <appId>` | Stop: SIGTERM every Process, SIGKILL survivors after 5 s. For systemd units use `systemctl [--user] stop`. |
 | `pause <appId>` | Units: `systemctl [--user] freeze <unit>` (cgroup freezer, atomic). Jobs: SIGSTOP the process group. |
 | `resume <appId>` | Units: `systemctl [--user] thaw <unit>`. Jobs: SIGCONT. |
 | `restart <appId>` | `.service` units (user or system): `systemctl [--user] restart <unit>`. A `.scope` has no `ExecStart` and cannot be restarted. |
 | `fds <on|off>` | enable the per-pid fd scan (Ports + GPU per App). Default on. |
+| `lean <on|off>` | lean ticks omit `apps` and `history` (vitals, pressure, culprit only). The shell turns this on while nothing is open. |
+| `now` | tick immediately (the shell sends it when a surface opens, so it never waits out the period). |
 
 Actions reply on the next tick via `events: [{ "type": "action", "id", "action", "ok": bool, "error"?: string }]`.
 
@@ -98,7 +100,7 @@ Actions reply on the next tick via `events: [{ "type": "action", "id", "action",
   delta ns / interval ns × 100. `-1` when no drm fd.
 - **CPU**: per-pid utime+stime delta from `/proc/<pid>/stat` (fields 14,15) over `interval × CLK_TCK × ncpu` → percent of machine.
 - **mem**: `statm` RSS pages × page size, summed.
-- **History**: ring of 120 samples per series at the 1 Hz base; when `rate` > 1 the ring still advances once per second (downsample by averaging).
+- **History**: ring of 120 samples per series, advancing once per tick (ten minutes at the 5 s default, two at 1 Hz). The shell labels the axis from the tick interval.
 - **Pressure**: `score = max(psi.cpu/60, psi.memFull/10, psi.ioFull/40, swapInPagesPerSec/2000)`, then
   `score *= 1.3` when CPU temp >= 95 C (thermal throttle zone on this CPU; temperature alone is never a reason).
   `busy` ≥ 0.35, `critical` ≥ 0.9. `reason` names the dominant term ("cpu stall 42%", "memory stall", "io stall", "swapping").

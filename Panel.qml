@@ -201,37 +201,9 @@ Panel {
 
   // ---------------------------------------------------------------- motion
 
-  // One shared 0..1 ramp per tick. Every sparkline reads it, so the newest
-  // sample slides in instead of the whole series stepping sideways.
-  QtObject {
-    id: slideSource
-    property real value: 1
-  }
-
-  readonly property real slide: slideSource.value
-
-  NumberAnimation {
-    id: slideAnim
-    target: slideSource
-    property: "value"
-    from: 0
-    to: 1
-    duration: 250
-    easing.type: Easing.OutCubic
-  }
-
-  Connections {
-    target: root.service
-
-    function onTicked() {
-      if (root.reducedMotion || !root.opened) {
-        slideAnim.stop()
-        slideSource.value = 1
-        return
-      }
-      slideAnim.restart()
-    }
-  }
+  // Sparklines repaint once per tick. A per-frame slide was measured at 7x
+  // the plugin's entire idle cost, for an effect nobody asked for.
+  readonly property real slide: 1
 
   // ---------------------------------------------------------------- frame
 

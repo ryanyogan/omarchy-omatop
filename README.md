@@ -6,13 +6,13 @@ A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. 
 
 ## What you get
 
-**In the bar.** A small pulse glyph drawn from the last few seconds of CPU. It stays the colour of your theme while the machine is calm, warms toward the urgent colour when the kernel reports real pressure, and breathes when things are critical. Left click opens the quick view, right click opens the cluster.
+**In the bar.** A small fixed mark. It stays the colour of your theme while the machine is calm and shifts toward the urgent colour when the kernel reports real pressure. It never moves. Left click opens the quick view, right click opens the cluster.
 
-**The quick view.** CPU, memory, GPU and temperature with two minute sparklines, net and power, the Apps you pinned, and the top three by CPU with the culprit highlighted. Press `o` to jump to the cluster.
+**The quick view.** CPU, memory, GPU and temperature with ten minute sparklines, net and power, the Apps you pinned, and one line naming the busiest App. Nothing in it reorders. Press `o` to jump to the cluster.
 
-**The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then track live: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared two minute axis, so a spike in one lines up with a spike in another. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
+**The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then track live: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared ten minute axis, so a spike in one lines up with a spike in another. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
 
-**Apps, not PIDs.** One row per application (Chromium is one row, not forty). Focus a row and the dials re-point at that App: the needles glide from the machine's values to Chromium's, and its own timelines slide into the ledger on the same axis. Press `o` to unfold its processes.
+**Apps, not PIDs.** One row per application (Chromium is one row, not forty), alphabetical inside User, System, Desktop and Kernel sections. Tab jumps between sections. Rows never reorder by usage, so what you are looking at stays where it is. Focus a row and the dials re-point at that App: the needles glide from the machine's values to Chromium's, and its own timelines slide into the ledger on the same axis. Press `o` to unfold its processes.
 
 **Recent, on top, never moving.** Things you just started from a terminal (`npm run dev`, `cargo build`, `docker compose up`) and recently launched apps sit in a strip at the top, newest first. They never get re-sorted by usage, and each shows its listening ports. Type `/3000` to find whatever is on port 3000, press `x` to stop it. That is the whole workflow. 🎯
 
@@ -41,7 +41,7 @@ o.bind("SUPER + CTRL + M", "System monitor", "omarchy-shell shell toggle ryanyog
 | | |
 |---|---|
 | `j` `k` `gg` `G` `ctrl-d` `ctrl-u` `H` `M` `L` | move (counts work: `5j`, `12G`) |
-| `{` `}` | previous, next section |
+| `tab` `shift-tab` `{` `}` | next, previous section |
 | `enter` `l` / `h` `esc` | focus an App in the cluster / unfocus |
 | `o` `space` | unfold the App's processes |
 | `za` `zM` `zR` | fold section, fold all, unfold all |
@@ -53,13 +53,17 @@ o.bind("SUPER + CTRL + M", "System monitor", "omarchy-shell shell toggle ryanyog
 
 ## How it works
 
-A Rust sampler (`sampler/`) runs as a shell service, reads `/proc`, `/sys` and cgroup v2 once a second (four times a second while the cluster is open), keeps two minutes of history, and streams one JSON line per tick. The QML side only renders. Apps are systemd scopes, so accounting uses the kernel's own per cgroup counters: shared pages count once and short lived processes are not missed. Jobs are POSIX process groups on a terminal. Ports come from joining `/proc/net/tcp` with each process's socket inodes. GPU per App comes from DRM fdinfo.
+A Rust sampler (`sampler/`) runs as a shell service, reads `/proc`, `/sys` and cgroup v2 every five seconds (configurable), keeps 120 samples of history, and streams one JSON line per tick. The QML side only renders. Apps are systemd scopes, so accounting uses the kernel's own per cgroup counters: shared pages count once and short lived processes are not missed. Jobs are POSIX process groups on a terminal. Ports come from joining `/proc/net/tcp` with each process's socket inodes. GPU per App comes from DRM fdinfo.
 
 The vocabulary lives in [CONTEXT.md](CONTEXT.md), the wire contract in [docs/sampler-protocol.md](docs/sampler-protocol.md).
 
 ## Settings
 
-Show CPU percent next to the glyph, reduce motion, and the sample rates, all in the bar widget's settings.
+Show CPU percent next to the glyph, reduce motion, and the refresh interval, all in the bar widget's settings.
+
+## Cost
+
+Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`): with nothing open the plugin adds about a quarter of a percent of one core and 10 MiB; the sampler sends a 790 byte tick every five seconds while nothing is open and only sends the full App list while a surface is looking at it.
 
 ## License
 

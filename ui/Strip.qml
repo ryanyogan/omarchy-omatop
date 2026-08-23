@@ -23,7 +23,7 @@ Item {
   property string fontFamily: Style.font.family
   property bool compact: false      // header-only height while an App is focused
   property bool animated: true
-  property real tickMs: 1000        // interval the sampler is running at
+  property real tickMs: 5000        // interval the sampler is running at (axis labels only)
   property bool available: true
 
   readonly property int labelWidth: Style.space(44)
@@ -36,22 +36,9 @@ Item {
   clip: true
   opacity: available ? 1 : 0.35
 
-  // The graph slides left continuously between samples instead of stepping.
-  property real phase: 0
-  property int lastCount: 0
-  onSamplesChanged: {
-    var n = samples ? samples.length : 0
-    if (n > lastCount && lastCount > 0 && animated) {
-      phase = 0
-      slide.restart()
-    } else {
-      phase = 1
-    }
-    lastCount = n
-    canvas.requestPaint()
-  }
-  NumberAnimation { id: slide; target: root; property: "phase"; from: 0; to: 1; duration: Math.max(80, Math.min(1200, root.tickMs)); easing.type: Easing.Linear }
-  onPhaseChanged: canvas.requestPaint()
+  // One repaint per tick. No per-frame slide: ten canvases rasterising at
+  // 120 Hz was the single largest cost of the whole plugin.
+  onSamplesChanged: canvas.requestPaint()
   onScrubChanged: canvas.requestPaint()
   onWidthChanged: canvas.requestPaint()
   onMaxValueChanged: canvas.requestPaint()
@@ -131,9 +118,7 @@ Item {
       if (n < 2) return
 
       // Right-align the series: the newest sample sits at the right edge.
-      // phase < 1 means the newest sample is still sliding in from the right.
-      var shift = (1 - root.phase) * step
-      var startX = w - (n - 1) * step + shift
+      var startX = w - (n - 1) * step
 
       ctx.save()
       ctx.beginPath()

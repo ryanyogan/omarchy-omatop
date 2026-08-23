@@ -83,7 +83,8 @@ struct Tick<'a> {
     vitals: &'a Vitals,
     pressure: Pressure,
     culprit: Option<&'a str>,
-    history: HistoryOut,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history: Option<HistoryOut>,
     apps: &'a [App],
     processes: HashMap<&'a str, &'a [ProcRow]>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,6 +222,11 @@ struct Sampler {
     targets: HashMap<String, TargetInfo>,
     live_pids: HashSet<i32>,
     rate: f64,
+    /// Omit apps and history from the tick. Set by the shell while no
+    /// surface is open.
+    lean: bool,
+    /// A `now` command arrived: tick immediately instead of waiting.
+    tick_now: bool,
     detail: Option<String>,
     last_tick: Instant,
     last_flush: Instant,
@@ -246,6 +252,8 @@ impl Sampler {
             targets: HashMap::new(),
             live_pids: HashSet::new(),
             rate: 1.0,
+            lean: false,
+            tick_now: false,
             detail: None,
             last_tick: now,
             last_flush: now,
@@ -277,6 +285,8 @@ impl Sampler {
                 self.detail = if arg == "-" || arg.is_empty() { None } else { Some(arg.to_string()) };
             }
             "fds" => self.grouper.fds.enabled = arg != "off",
+            "lean" => self.lean = arg != "off",
+            "now" => self.tick_now = true,
             "stop" | "pause" | "resume" | "restart" => self.act(verb, arg),
             _ => {}
         }
@@ -440,7 +450,7 @@ impl Sampler {
             vitals: &v,
             pressure: p,
             culprit: culprit_id,
-            history: HistoryOut {
+            history: if self.lean { None } else { Some(HistoryOut {
                 cpu: self.sys_hist.cpu.rounded(1),
                 mem: self.sys_hist.mem.rounded(1),
                 gpu: self.sys_hist.gpu.rounded(1),
@@ -450,8 +460,11 @@ impl Sampler {
                 disk_read: self.sys_hist.disk_read.rounded(0),
                 disk_write: self.sys_hist.disk_write.rounded(0),
                 power: self.sys_hist.power.rounded(1),
-            },
-            apps: &apps,
+            }) },
+            // Lean ticks (nothing open in the shell) carry vitals, pressure and
+            // the culprit only: the bar glyph needs nothing else, and the
+            // shell should not parse 30 KB of Apps nobody is looking at.
+            apps: if self.lean { &[] } else { &apps },
             processes,
             detail,
             events,
@@ -503,7 +516,13 @@ fn main() {
                 break;
             }
             match rx.recv_timeout(next - now) {
-                Ok(line) => s.command(&line),
+                Ok(line) => {
+                    s.command(&line);
+                    if s.tick_now {
+                        s.tick_now = false;
+                        break;
+                    }
+                }
                 Err(RecvTimeoutError::Timeout) => break,
                 // stdin closed (the sampler can be run standalone, or the
                 // shell may never open it). Keep sampling; just stop waiting.
@@ -517,6 +536,13 @@ fn main() {
             }
         }
 
+        // Apply anything that landed while we were not waiting (the shell
+        // sends `rate`, `lean` and `fds` right after spawning us), so the very
+        // first tick already honours them.
+        while let Ok(line) = rx.try_recv() {
+            s.command(&line);
+        }
+        s.tick_now = false;
         s.tick(&mut out);
 
         next += s.period();

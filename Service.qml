@@ -54,7 +54,7 @@ Item {
   // Pins are identities (App names), not PIDs. Persisted to stateFile.
   property var pins: []
   property var recentActions: []      // last few action events for the UI to toast
-  property int openSurfaces: 0        // overlay/panel open count drives the sample rate
+  property int openSurfaces: 0        // overlay/panel open count drives lean ticks
 
   signal ticked()
   signal actionFinished(var event)
@@ -100,6 +100,7 @@ Item {
         root.restartAttempts = 0
         sampler.running = true
         root.pushRate()
+        root.pushLean()
       } else {
         root.samplerState = "missing"
       }
@@ -156,6 +157,13 @@ Item {
 
   function surfaceOpened() { root.openSurfaces = root.openSurfaces + 1 }
   function surfaceClosed() { root.openSurfaces = Math.max(0, root.openSurfaces - 1) }
+  // Nothing open: lean ticks (vitals + pressure only, ~700 bytes). Something
+  // opens: full ticks, and one right now so the surface never shows stale data.
+  onOpenSurfacesChanged: pushLean()
+  function pushLean() {
+    if (root.openSurfaces > 0) send("lean off\nnow")
+    else send("lean on")
+  }
 
 
   // ---- Tick ingestion ----------------------------------------------------
@@ -169,21 +177,25 @@ Item {
     root.samplerState = "running"
     root.tick = data
     root.vitals = data.vitals || null
-    root.history = data.history || null
+    // Lean ticks omit history and apps; keep what we had rather than blanking.
+    if (data.history) root.history = data.history
     root.pressure = data.pressure || { level: "calm", score: 0, reason: "" }
     root.culprit = data.culprit || ""
     root.detail = data.detail || null
     root.processes = data.processes || ({})
 
-    var list = Array.isArray(data.apps) ? data.apps : []
-    var byId = {}
-    for (var i = 0; i < list.length; i++) {
-      var a = list[i]
-      a.pinned = Model.isPinned(root.pins, a)
-      byId[a.id] = a
+    var lean = !Array.isArray(data.apps) || (data.apps.length === 0 && root.openSurfaces === 0)
+    var list = lean ? root.apps : data.apps
+    var byId = lean ? root.appsById : {}
+    if (!lean) {
+      for (var i = 0; i < list.length; i++) {
+        var a = list[i]
+        a.pinned = Model.isPinned(root.pins, a)
+        byId[a.id] = a
+      }
+      root.apps = list
+      root.appsById = byId
     }
-    root.apps = list
-    root.appsById = byId
     root.tickCount = root.tickCount + 1
     root.lastTickMs = data.t || Date.now()
 

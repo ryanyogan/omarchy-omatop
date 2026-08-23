@@ -46,7 +46,7 @@ Item {
   // Live readings glide between samples rather than snap.
   Behavior on shown {
     enabled: dial.animated && !ignition.running
-    NumberAnimation { duration: 600; easing.type: Easing.OutCubic }
+    NumberAnimation { duration: 400; easing.type: Easing.OutCubic }
   }
   Behavior on accent { enabled: dial.animated; ColorAnimation { duration: 300 } }
 

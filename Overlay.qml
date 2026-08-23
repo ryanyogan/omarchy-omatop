@@ -139,6 +139,9 @@ Item {
 
     for (var i = rows.count - 1; i >= 0; i--) if (!want[rows.get(i).key]) rows.remove(i)
 
+    var index = {}
+    for (var m = 0; m < rows.count; m++) index[rows.get(m).key] = m
+
     for (var t = 0; t < desired.length; t++) {
       var r = desired[t]
       var key = rowKey(r)
@@ -147,11 +150,18 @@ Item {
         label: r.label || "", count: r.count || 0, collapsed: r.collapsed === true,
         appId: r.type === "app" ? r.app.id : ""
       }
-      var j = -1
-      for (var s = 0; s < rows.count; s++) if (rows.get(s).key === key) { j = s; break }
-      if (j === -1) rows.insert(t, entry)
-      else if (j !== t && allowMove) { rows.move(j, t, 1); rows.set(t, entry) }
-      else rows.set(j, entry)
+      var j = index[key] === undefined ? -1 : index[key]
+      if (j === -1) {
+        rows.insert(t, entry)
+        // Everything at or after t shifted down by one.
+        for (var k in index) if (index[k] >= t) index[k] += 1
+        index[key] = t
+      } else if (j !== t && allowMove) {
+        rows.move(j, t, 1)
+        rows.set(t, entry)
+        var lo = Math.min(j, t), hi = Math.max(j, t)
+        for (var k2 in index) { var v = index[k2]; if (v >= lo && v <= hi) index[k2] = v === j ? t : (j > t ? v + 1 : v - 1) }
+      } else rows.set(j, entry)
     }
     if (allowMove) lastReorderMs = now
     if (false) { var dbg=[]; for (var q=0;q<rows.count;q++) dbg.push(rows.get(q).type==="header" ? "["+rows.get(q).label+"]" : rows.get(q).appId.slice(0,24)); console.warn("omatop rows", allowMove, rows.count, dbg.join(" | ")) }
@@ -589,19 +599,28 @@ Item {
         spacing: Style.space(36)
         readonly property var v: root.service ? root.service.vitals : null
 
+        // Static model: a fresh array literal here would recreate every
+        // delegate on each tick. The text bindings update in place instead.
+        function tripValue(key) {
+          var v = trip.v
+          if (!v) return key === "power" ? "" : "--"
+          if (key === "net") return "↓" + Model.bytes(v.net.rx) + "/s  ↑" + Model.bytes(v.net.tx) + "/s"
+          if (key === "disk") return "r " + Model.bytes(v.disk.read) + "/s  w " + Model.bytes(v.disk.write) + "/s"
+          if (key === "power") return v.power && v.power.available ? Model.watts(v.power.watts) + (v.power.battery >= 0 ? "  " + v.power.battery + "%" + (v.power.charging ? " charging" : "") : "") : ""
+          if (key === "load") return v.load.map(function(x) { return Number(x).toFixed(2) }).join("  ")
+          if (key === "up") return Model.age(root.nowMs / 1000 - v.uptime, root.nowMs)
+          return ""
+        }
+
         Repeater {
-          model: [
-            ["net", trip.v ? "↓" + Model.bytes(trip.v.net.rx) + "/s  ↑" + Model.bytes(trip.v.net.tx) + "/s" : "--"],
-            ["disk", trip.v ? "r " + Model.bytes(trip.v.disk.read) + "/s  w " + Model.bytes(trip.v.disk.write) + "/s" : "--"],
-            ["power", trip.v && trip.v.power && trip.v.power.available ? Model.watts(trip.v.power.watts) + (trip.v.power.battery >= 0 ? "  " + trip.v.power.battery + "%" + (trip.v.power.charging ? " charging" : "") : "") : ""],
-            ["load", trip.v ? trip.v.load.map(function(x) { return Number(x).toFixed(2) }).join("  ") : "--"],
-            ["up", trip.v ? Model.age(Date.now() / 1000 - trip.v.uptime, Date.now()) : "--"]
-          ].filter(function(r) { return r[1] !== "" })
+          model: ["net", "disk", "power", "load", "up"]
           delegate: Row {
             required property var modelData
             spacing: Style.space(8)
+            readonly property string value: trip.tripValue(modelData)
+            visible: value !== ""
             Text {
-              text: modelData[0]
+              text: modelData
               color: root.faint
               textFormat: Text.PlainText
               font.family: root.fontFamily
@@ -612,7 +631,7 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
             }
             Text {
-              text: modelData[1]
+              text: parent.value
               color: root.ink
               textFormat: Text.PlainText
               font.family: root.fontFamily
@@ -775,18 +794,22 @@ Item {
                 spacing: Style.space(2)
                 topPadding: Style.space(6)
                 Repeater {
-                  model: detailPane.app ? [
-                    ["ports", Model.ports(detailPane.app.ports) || "none"],
-                    ["unit", detailPane.app.unit || (detailPane.app.kind === "job" ? "job on " + detailPane.app.tty : "")],
-                    ["tag", detailPane.app.tag || ""],
-                    ["cmd", detailPane.app.cmd || ""]
-                  ].filter(function(r) { return r[1] !== "" }) : []
+                  model: ["ports", "unit", "tag", "cmd"]
                   delegate: Item {
                     required property var modelData
+                    readonly property string value: {
+                      var a = detailPane.app
+                      if (!a) return ""
+                      if (modelData === "ports") return Model.ports(a.ports) || "none"
+                      if (modelData === "unit") return a.unit || (a.kind === "job" ? "job on " + a.tty : "")
+                      if (modelData === "tag") return a.tag || ""
+                      return a.cmd || ""
+                    }
                     width: parent.width
-                    height: Style.space(18)
-                    Text { x: 0; width: Style.space(44); text: modelData[0]; color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.letterSpacing: 1.5; font.bold: true; font.capitalization: Font.AllUppercase; anchors.verticalCenter: parent.verticalCenter }
-                    Text { x: Style.space(44); width: parent.width - x; text: modelData[1]; elide: Text.ElideMiddle; color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
+                    height: value === "" ? 0 : Style.space(18)
+                    visible: value !== ""
+                    Text { x: 0; width: Style.space(44); text: modelData; color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.letterSpacing: 1.5; font.bold: true; font.capitalization: Font.AllUppercase; anchors.verticalCenter: parent.verticalCenter }
+                    Text { x: Style.space(44); width: parent.width - x; text: parent.value; elide: Text.ElideMiddle; color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
                   }
                 }
               }
