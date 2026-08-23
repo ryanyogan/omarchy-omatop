@@ -698,16 +698,17 @@ Item {
           // fixed slice when an App is focused), so the graphs use every
           // pixel the screen offers.
           readonly property int axisHeight: Style.space(16)
+          readonly property int stripGap: Style.space(12)
           readonly property int stripCount: 5 + (root.showGpu ? 1 : 0) + (ledger.v && ledger.v.power && ledger.v.power.available ? 1 : 0)
           readonly property real detailSlice: root.detailApp ? Math.min(height * 0.45, Style.space(340)) : 0
-          readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - Style.space(10) * stripCount) / stripCount)
+          readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - stripGap * stripCount) / stripCount)
 
           Column {
             id: strips
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            spacing: Style.space(14)
+            spacing: ledger.stripGap
 
             Strip { width: strips.width; height: ledger.stripHeight; label: "cpu"; maxValue: 100
               samples: ledger.h ? ledger.h.cpu : []; valueText: ledger.v ? Model.pct(ledger.v.cpu.total) : "--"
@@ -1036,26 +1037,87 @@ Item {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Style.space(18)
+        height: Style.space(22)
+
+        readonly property var hints: root.mode === "search"
+          ? [["type", "filter"], ["enter", "keep"], ["esc", "clear"]]
+          : [["j k", "move"], ["tab", "section"], ["enter", "focus"], ["o", "processes"], ["p", "pin"], ["ss", "pause"], ["x", "stop"], ["/", "find"], ["?", "help"]]
+
+        // Toast replaces the legend while it lasts.
         Text {
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          text: root.toast.length ? root.toast
-              : (root.mode === "search" ? "type to filter   enter keep   esc clear"
-              : "j k move   tab section   enter focus   o processes   p pin   ss pause   x stop   / find   ? help")
-          color: root.toast.length ? root.ink : root.faint
+          visible: root.toast.length > 0
+          text: root.toast
+          color: root.ink
           textFormat: Text.PlainText
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
-        Text {
+
+        Row {
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          visible: root.toast.length === 0
+          spacing: Style.space(16)
+          Repeater {
+            model: footer.hints
+            delegate: Row {
+              required property var modelData
+              spacing: Style.space(6)
+              Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: keyLabel.implicitWidth + Style.space(12)
+                height: Style.space(17)
+                radius: Style.space(4)
+                color: Qt.rgba(1, 1, 1, 0.07)
+                border.width: 1
+                border.color: root.hairline
+                Text {
+                  id: keyLabel
+                  anchors.centerIn: parent
+                  text: modelData[0]
+                  color: root.dim
+                  textFormat: Text.PlainText
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: modelData[1]
+                color: root.faint
+                textFormat: Text.PlainText
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+        }
+
+        Row {
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          text: (root.countBuffer.length ? root.countBuffer + "  " : "") + (root.pending.length ? root.pending + "  " : "") + "sort " + root.sortKey
-          color: root.faint
-          textFormat: Text.PlainText
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          spacing: Style.space(8)
+          Text {
+            visible: root.countBuffer.length > 0 || root.pending.length > 0
+            text: root.countBuffer + root.pending
+            color: root.ink
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Text {
+            text: "sort " + root.sortKey
+            color: root.faint
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            anchors.verticalCenter: parent.verticalCenter
+          }
         }
       }
 
