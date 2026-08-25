@@ -191,15 +191,17 @@ Item {
   readonly property bool showGpu: !!(vitals && vitals.gpu && vitals.gpu.available === true)
 
   // ---- Palette -------------------------------------------------------------
-  // Keep the cluster in lockstep with the active Omarchy theme.
+  // The cluster follows the active theme: background, foreground, accent
+  // and urgent all come from it, so a light theme gets a light cluster.
+  // Secondary text is foreground at reduced alpha, as in the quick view.
   readonly property color background: Color.background
   readonly property color ink: Color.foreground
-  readonly property color dim: Util.alpha(ink, 0.76)
-  readonly property color faint: Util.alpha(ink, 0.54)
-  readonly property color hairline: Util.alpha(ink, 0.18)
+  readonly property color dim: Util.alpha(ink, 0.7)
+  readonly property color faint: Util.alpha(ink, 0.45)
+  readonly property color hairline: Util.alpha(ink, 0.14)
   readonly property color accent: Color.accent
   readonly property color urgent: Color.urgent
-  readonly property color selectedBackground: Util.alpha(accent, 0.18)
+  readonly property color selectedBackground: Util.alpha(ink, 0.08)
   readonly property color pressureColor: Model.pressureColor(pressure.level, accent, urgent)
   readonly property string fontFamily: Style.font.family
 
@@ -604,11 +606,12 @@ Item {
     WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     anchors { top: true; bottom: true; left: true; right: true }
 
-    // Theme background carries the contrast on any wallpaper.
+    // The theme background, nearly opaque: a hint of the desktop still
+    // shows through so this reads as an overlay, not a window.
     Rectangle {
       id: scrim
       anchors.fill: parent
-      color: root.background
+      color: Util.alpha(root.background, 0.94)
       opacity: root.opened ? 1 : 0
       Behavior on opacity { enabled: root.animated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
       MouseArea { anchors.fill: parent; enabled: root.opened; onClicked: root.close() }
@@ -701,9 +704,9 @@ Item {
             width: Style.space(240)
             height: Style.space(26)
             radius: Style.space(13)
-            color: root.mode === "search" ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+            color: root.mode === "search" ? Util.alpha(root.ink, 0.08) : "transparent"
             border.width: 1
-            border.color: root.mode === "search" ? Qt.rgba(1, 1, 1, 0.45) : root.hairline
+            border.color: root.mode === "search" ? Util.alpha(root.ink, 0.45) : root.hairline
             anchors.verticalCenter: parent.verticalCenter
             Behavior on border.color { enabled: root.animated; ColorAnimation { duration: 120 } }
             Text {
@@ -1284,7 +1287,7 @@ Item {
                 width: keyLabel.implicitWidth + Style.space(12)
                 height: Style.space(17)
                 radius: Style.space(4)
-                color: Qt.rgba(1, 1, 1, 0.07)
+                color: Util.alpha(root.ink, 0.07)
                 border.width: 1
                 border.color: root.hairline
                 Text {

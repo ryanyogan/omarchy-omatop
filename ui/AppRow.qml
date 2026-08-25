@@ -53,7 +53,7 @@ Item {
   Rectangle {
     anchors.fill: parent
     radius: root.cornerRadius
-    color: root.hasCursor ? root.selectedBackground : (root.isDetail ? Qt.rgba(1, 1, 1, 0.04) : "transparent")
+    color: root.hasCursor ? root.selectedBackground : (root.isDetail ? Util.alpha(root.ink, 0.04) : "transparent")
     Behavior on color { enabled: root.animated; ColorAnimation { duration: 120 } }
   }
 
@@ -93,7 +93,7 @@ Item {
         anchors.fill: parent
         radius: Style.space(4)
         visible: root.iconSource === ""
-        color: Qt.rgba(1, 1, 1, 0.08)
+        color: Util.alpha(root.ink, 0.08)
         border.width: 1
         border.color: root.hairline
         Text {
@@ -185,7 +185,7 @@ Item {
       width: root.meterWidth
       height: Style.space(5)
       radius: height / 2
-      color: Qt.rgba(1, 1, 1, 0.08)
+      color: Util.alpha(root.ink, 0.08)
       anchors.verticalCenter: parent.verticalCenter
       Rectangle {
         width: meter.shown > 0.001 ? Math.max(height, track.width * meter.shown) : 0

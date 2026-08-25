@@ -42,9 +42,10 @@ Item {
   readonly property int tickCount: 46
   readonly property real arcWidth: Math.max(2, Math.round(diameter / 52))
   readonly property real arcRadius: diameter / 2 - arcWidth
-  readonly property color trackColor: Qt.rgba(1, 1, 1, 0.14)
-  readonly property color minorTickColor: Qt.rgba(1, 1, 1, 0.12)
-  readonly property color majorTickColor: Qt.rgba(1, 1, 1, 0.3)
+  // Scale and ticks are the ink at low alpha, so they survive a light theme.
+  readonly property color trackColor: Util.alpha(onScrim, 0.14)
+  readonly property color minorTickColor: Util.alpha(onScrim, 0.12)
+  readonly property color majorTickColor: Util.alpha(onScrim, 0.3)
 
   // `shown` is what the needle points at. It is stored, not bound, so a new
   // sample can read the reading it is gliding away from.

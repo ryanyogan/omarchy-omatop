@@ -46,7 +46,7 @@ Item {
 
   readonly property var sections: [
     ["What it is", "A small Rust program, shipped as source inside the plugin. It is compiled once on your machine with the cargo that Omarchy already provides. Nothing is downloaded, nothing is installed system-wide, and it does not need root."],
-    ["What it does", "Once a second it reads /proc, /sys and cgroup v2 and writes one line of JSON to the shell. It never opens a network connection. Stopping, pausing and restarting go through systemctl or a signal to your own processes, and Stop always asks first."],
+    ["What it does", "Once a second it reads /proc, /sys and cgroup v2 and writes one line of JSON to the shell. It never opens a network connection. Stopping, pausing and restarting go through the service manager or a signal to your own processes, and Stop always asks first."],
     ["Why it is needed", "Walking /proc every second from QML would keep the shell busy. The sampler does that walk in about 8 ms of native code, so with nothing open Omatop costs the shell around 0.3% of one core."],
     ["What it costs", "About 3.5 MiB of memory and 0.8% of one core at one sample a second, measured in docs/performance.md in the repository. The build takes about a minute, once."]
   ]

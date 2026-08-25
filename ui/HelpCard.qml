@@ -7,9 +7,9 @@ Item {
 
   property bool opened: false
   property color ink: Color.foreground
-  property color dim: Util.alpha(ink, 0.76)
-  property color faint: Util.alpha(ink, 0.54)
-  property color hairline: Util.alpha(ink, 0.18)
+  property color dim: Util.alpha(ink, 0.7)
+  property color faint: Util.alpha(ink, 0.45)
+  property color hairline: Util.alpha(ink, 0.14)
   property string fontFamily: Style.font.family
   property bool animated: true
 
