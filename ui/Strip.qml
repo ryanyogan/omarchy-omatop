@@ -128,37 +128,45 @@ Item {
     font.capitalization: Font.AllUppercase
   }
 
-  // The live value rides beside the plot, on its vertical centre, in a fixed
-  // column so the plot width never changes with the digits.
-  readonly property int valueColumnWidth: Style.space(156)
-  readonly property real plotWidth: plot.width
+  // The scale, beside the name: what the baseline and the top line mean.
+  Text {
+    anchors.left: labelText.right
+    anchors.leftMargin: Style.space(10)
+    anchors.baseline: labelText.baseline
+    visible: root.showAxis && root.available
+    text: root.axisText(0) + " – " + root.axisText(root.scale)
+    color: root.faint
+    textFormat: Text.PlainText
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+  }
+
+  // The live value, right-aligned above the plot.
   Text {
     anchors.right: parent.right
-    anchors.verticalCenter: plot.verticalCenter
-    width: root.valueColumnWidth
-    horizontalAlignment: Text.AlignRight
+    y: 0
     text: root.shownValue
     opacity: root.scrub >= 0 ? 1 : root.valueOpacity
     color: root.scrub >= 0 ? root.ink : root.line
     textFormat: Text.PlainText
     font.family: root.fontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: Style.font.caption
     font.bold: true
-    elide: Text.ElideLeft
   }
+  readonly property real plotWidth: plot.width
+  readonly property real plotX: plot.x
 
   Item {
     id: plot
     x: 0
     y: root.headerHeight
-    width: parent.width - root.valueColumnWidth - Style.space(14)
+    width: parent.width
     height: Math.max(4, parent.height - root.headerHeight)
     clip: true
 
-    // Axis: a solid baseline at zero, dashed lines at half and full scale,
-    // each labelled at the left in the strip's own unit, so the line reads
-    // as a quantity and not just a shape. The dashes are one 1 px tall
-    // canvas painted on resize, not hundreds of Rectangles.
+    // Axis: a solid baseline at zero, dashed lines at half and full scale;
+    // the header names what they mean. The dashes are one 1 px tall canvas
+    // painted on resize, not hundreds of Rectangles.
     Rectangle { x: 0; y: Math.round(root.plotFloor); width: parent.width; height: 1; color: root.hairline }
     component Dashes: Canvas {
       x: 0
@@ -174,18 +182,6 @@ Item {
     }
     Dashes { y: Math.round((root.plotTop + root.plotFloor) / 2) }
     Dashes { y: Math.round(root.plotTop) }
-    component AxisLabel: Text {
-      x: 0
-      color: root.faint
-      textFormat: Text.PlainText
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      visible: root.showAxis && root.available
-      z: 2
-    }
-    AxisLabel { y: Math.round(root.plotTop) + 2; text: root.axisText(root.scale) }
-    AxisLabel { y: Math.round((root.plotTop + root.plotFloor) / 2) + 2; text: root.axisText(root.scale / 2); visible: root.showAxis && root.available && plot.height >= Style.space(56) }
-    AxisLabel { y: Math.round(root.plotFloor) - implicitHeight - 1; text: root.axisText(0); visible: root.showAxis && root.available && plot.height >= Style.space(40) }
 
     Item {
       id: slider

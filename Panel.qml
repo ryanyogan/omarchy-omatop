@@ -201,13 +201,13 @@ Panel {
   readonly property real cpuColumn: Math.ceil(appCpuMetrics.advanceWidth)
   readonly property real memColumn: Math.ceil(appMemMetrics.advanceWidth)
 
-  readonly property real stripHeight: Style.space(44)
+  readonly property real stripHeight: Style.space(64)
   readonly property real appRowHeight: Style.space(30)
   readonly property real appIconSize: Style.space(16)
 
   // ---------------------------------------------------------------- frame
 
-  readonly property real panelWidth: Style.space(380)
+  readonly property real panelWidth: Style.space(440)
 
   KeyboardPanel {
     id: panel
@@ -217,7 +217,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(root.panelWidth)
-    contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(620))
+    contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(800))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -338,12 +338,12 @@ Panel {
         // ------------------------------------------------------- vitals
 
         // The same Strip the overlay's ledger is built from, on the same
-        // two-minute axis. Label and value ride the top edge, so the graph
-        // gets the panel's full width and there is no label column.
+        // two-minute axis, with its scale in a gutter and the live value
+        // beside the plot.
         Column {
           id: strips
           width: parent.width
-          spacing: Style.space(10)
+          spacing: Style.space(16)
           visible: root.running
 
           Strip {

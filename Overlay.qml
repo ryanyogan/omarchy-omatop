@@ -910,7 +910,7 @@ Item {
             hoverEnabled: true
             onPositionChanged: function(mouse) {
               if (mouse.y > strips.height) { root.scrub = -1; return }
-              root.scrub = Math.round(Math.max(0, Math.min(1, mouse.x / cpuStrip.plotWidth)) * 119)
+              root.scrub = Math.round(Math.max(0, Math.min(1, (mouse.x - cpuStrip.plotX) / cpuStrip.plotWidth)) * 119)
             }
             onExited: root.scrub = -1
           }
@@ -919,7 +919,7 @@ Item {
           // fixed slice when an App is focused), so the graphs use every
           // pixel the screen offers.
           readonly property int axisHeight: Style.space(16)
-          readonly property int stripGap: Style.space(12)
+          readonly property int stripGap: Style.space(20)
           readonly property int stripCount: 5 + (root.showGpu ? 1 : 0) + (ledger.v && ledger.v.power && ledger.v.power.available ? 1 : 0)
           readonly property real detailSlice: root.detailApp ? Math.min(height * 0.45, Style.space(340)) : 0
           readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - stripGap * stripCount) / stripCount)
@@ -976,6 +976,7 @@ Item {
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
 
             Item {
+              x: cpuStrip.plotX
               width: cpuStrip.plotWidth
               height: ledger.axisHeight
               readonly property string span: Model.span(119 * root.tickMs)
