@@ -538,3 +538,67 @@ down from 68.0 MiB to 39.3 MiB and from 9 threads to 6, so the overlay's layer
 surface is now released but its heap and render threads are not.
 
 Two items remain, both local: the dial glide, and the overlay's unload.
+
+
+---
+
+# After, second pass (motion clock)
+
+Re-measured 2026-08-24 on the same machine, but on a different display: the
+external DP-1, 5120x2880 @ 60 Hz, scale 2 (the 120 Hz eDP-1 was inactive).
+`refreshSeconds` was 1, not the 5 of the first pass. Harness `docs/measure.py`,
+40 s windows, presence confirmed in `hyprctl layers`. Baselines in this
+section were taken on the same display the same day against `aba9f67`.
+
+## What changed
+
+- The overlay's needles, value arcs and timelines now glide continuously
+  between samples, driven by one shared timer (`motionHz`, default 20 fps)
+  rather than per-item `Behavior`s. The value arc is a fragment shader
+  (`ui/arc.frag`, compiled to `ui/arc.frag.qsb` with
+  `qsb --glsl "100 es,120,150"`), so sweeping it is a uniform write, not a
+  re-tessellation. Timelines slide by a transform over a path that carries one
+  extra sample on the left.
+- The search caret blink and the critical-pressure pulse, both
+  `loops: Animation.Infinite`, are gone (the caret is a 2 Hz timer). A looping
+  QML animation makes Qt's threaded render loop request a frame on every
+  vsync whether or not anything visible changed.
+
+## Results, shell CPU as percent of one core
+
+| State | Before (`aba9f67`) | After |
+|---|---|---|
+| Closed | 0.40% | 0.50% |
+| Dropdown open | 0.87% | 0.65% |
+| Overlay open | 3.50% | **7.04%** |
+| Overlay, typing a search | **11.44%** | **7.87%** |
+| Overlay, critical pressure | ≈11% (same mechanism as search) | ≈7% |
+
+RSS with the overlay open: 647 MiB, back to 615 MiB closed. Threads 44 open,
+37 closed. Hyprland 3.25% with the overlay open (2.05% closed).
+
+## What a frame costs
+
+Every ablation landed on the same number. With the overlay open at a measured
+20.4 fps, shell CPU was 7.0% whether the dials glided and the strips did not
+(8.4%, one noisy run), the strips slid and the dials did not (7.06%), the
+shader arcs were hidden (6.99%), the needle was frozen (7.46%), hover was
+disabled (7.26%), or the App list was cached in a `layer` (6.39%). At 12 fps
+it was 5.03%. With no motion at all, 3.13%.
+
+So one frame of this overlay on this display costs about **3.5 ms of CPU**
+across the GUI thread (1.2 ms), the scene-graph render thread (1.2 ms) and
+Mesa (1.1 ms), regardless of what moved. Continuous motion is priced in
+frames per second and nothing else, which is why the rate is a setting
+rather than a constant, and why the overlay picks it from the core count
+and drops to stepping while the machine is under heavy or critical Pressure.
+
+The earlier standalone bench put the same figure at 1.5 ms; the live overlay
+is a heavier scene (40 App rows, 5K) and the bench under-reported it.
+
+## Honest summary
+
+The cluster now moves the way an instrument cluster should, and its worst
+states (search, critical) are 30 to 40% cheaper than before. Its common state
+costs twice what it did, for the motion. `motionHz: 0` restores the old cost
+exactly; reduce motion does the same and more.
