@@ -5,8 +5,19 @@ import qs.Commons
 // One floating cluster dial, in the language of the shell's speed test
 // overlay: an open 270° scale with the gap at the bottom, a faint tick ring,
 // a glowing value arc, a hubless needle that fades toward the pivot, and a
-// digital readout in the middle. Every write to the needle goes through
-// `shown`, so the ignition sweep and live readings share one animation.
+// digital readout in the middle.
+//
+// Motion. The dial owns no animation of its own for live readings. The
+// parent hands it a `phase` (0 at the moment a new sample lands, 1 when the
+// next one is due) from one shared low-rate clock, and the needle and arc
+// glide from the last reading to the new one as `phase` advances. Every
+// frame the window produces costs the same whether one dial moves or all of
+// them, so one clock for the whole overlay is the only cheap way to move.
+//
+// The value arc is a fragment shader (arc.frag), not a Shape: sweeping a
+// Shape arc re-tessellates it every frame, while sweeping the shader is one
+// uniform write. If the compiled shader fails to load the Shape below takes
+// over, snapping to each sample.
 Item {
   id: dial
 
@@ -17,6 +28,7 @@ Item {
   property string readout: ""          // preformatted; empty = number + unit
   property bool engaged: true
   property bool animated: true
+  property real phase: 1               // 0..1, from the parent's motion clock
   property real diameter: Style.space(170)
   property color accent: Color.accent
   property color onScrim: "white"
@@ -33,31 +45,37 @@ Item {
   readonly property color minorTickColor: Qt.rgba(1, 1, 1, 0.12)
   readonly property color majorTickColor: Qt.rgba(1, 1, 1, 0.3)
 
+  // `shown` is what the needle points at. It is stored, not bound, so a new
+  // sample can read the reading it is gliding away from.
   property real shown: 0
-  readonly property real reading: ignition.running ? value : shown
-  // The needle glides (a transform, free). The arcs snap to the live value:
-  // animating a Shape arc re-tessellates it every frame, which at 1 Hz
-  // updates cost more than everything else in the overlay combined.
+  property real glideFrom: 0
+  property real glideTo: 0
+
   readonly property real needleFraction: fullScale > 0 ? Math.max(0, Math.min(1, shown / fullScale)) : 0
-  readonly property real fraction: fullScale > 0 ? Math.max(0, Math.min(1, (ignition.running ? shown : value) / fullScale)) : 0
-  readonly property bool arcVisible: fraction > 0.004
+  readonly property bool arcVisible: needleFraction > 0.004
 
   width: diameter
   height: diameter
   opacity: engaged ? 1 : 0.4
-  Behavior on opacity { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-
-  // Live readings glide between samples rather than snap.
-  // A short glide: long enough to read as motion, short enough that at a
-  // 1 s refresh the scene is idle most of the time.
-  Behavior on shown {
-    enabled: dial.animated && !ignition.running
-    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-  }
+  Behavior on opacity { enabled: dial.animated; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
   Behavior on accent { enabled: dial.animated; ColorAnimation { duration: 300 } }
 
-  onValueChanged: { if (!ignition.running) shown = value }
-  Component.onCompleted: shown = value
+  // Ease in and out over the whole interval: no first-frame lurch, and the
+  // needle settles exactly as the next sample is due.
+  function eased(p) { return 0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, Math.min(1, p))) }
+
+  onValueChanged: {
+    if (ignition.running) return
+    glideFrom = shown
+    glideTo = value
+    // No clock running (reduced motion, or a change between ticks): land now.
+    if (!animated || phase >= 1) shown = value
+  }
+  onPhaseChanged: {
+    if (ignition.running) return
+    shown = glideFrom + (glideTo - glideFrom) * eased(phase)
+  }
+  Component.onCompleted: { shown = value; glideFrom = value; glideTo = value }
 
   function ignite() {
     if (!animated) { shown = value; return }
@@ -67,15 +85,15 @@ Item {
   // Cluster power-on: sweep to full scale and fall back before live figures take over.
   SequentialAnimation {
     id: ignition
-    NumberAnimation { target: dial; property: "shown"; to: dial.fullScale; duration: 550; easing.type: Easing.InOutCubic }
-    NumberAnimation { target: dial; property: "shown"; to: 0; duration: 650; easing.type: Easing.OutCubic }
-    onFinished: dial.shown = dial.value
+    NumberAnimation { target: dial; property: "shown"; to: dial.fullScale; duration: 450; easing.type: Easing.InOutCubic }
+    NumberAnimation { target: dial; property: "shown"; to: 0; duration: 500; easing.type: Easing.OutCubic }
+    onFinished: { dial.shown = dial.value; dial.glideFrom = dial.value; dial.glideTo = dial.value }
   }
 
+  // Scale track: static, so a Shape is fine.
   Shape {
     anchors.fill: parent
     preferredRendererType: Shape.CurveRenderer
-
     ShapePath {
       strokeWidth: dial.arcWidth
       strokeColor: dial.trackColor
@@ -83,22 +101,38 @@ Item {
       capStyle: ShapePath.RoundCap
       PathAngleArc { centerX: dial.width / 2; centerY: dial.height / 2; radiusX: dial.arcRadius; radiusY: dial.arcRadius; startAngle: dial.dialStart; sweepAngle: dial.dialSweep }
     }
+  }
 
-    // Under-glow, the backlit ring of a real cluster.
-    ShapePath {
-      strokeWidth: dial.arcWidth * 3
-      strokeColor: dial.arcVisible ? Qt.rgba(dial.accent.r, dial.accent.g, dial.accent.b, 0.18) : "transparent"
-      fillColor: "transparent"
-      capStyle: ShapePath.RoundCap
-      PathAngleArc { centerX: dial.width / 2; centerY: dial.height / 2; radiusX: dial.arcRadius; radiusY: dial.arcRadius; startAngle: dial.dialStart; sweepAngle: dial.dialSweep * dial.fraction }
-    }
+  // Value arc: under-glow ring and the arc itself, one quad each.
+  component ArcFx: ShaderEffect {
+    anchors.fill: parent
+    fragmentShader: Qt.resolvedUrl("arc.frag.qsb")
+    blending: true
+    visible: dial.arcVisible && status === ShaderEffect.Compiled
+    property color arcColor: dial.accent
+    property vector2d size: Qt.vector2d(width, height)
+    property real radius: dial.arcRadius
+    property real halfWidth: dial.arcWidth / 2
+    property real startAngle: dial.dialStart * Math.PI / 180
+    property real sweep: dial.dialSweep * dial.needleFraction * Math.PI / 180
+    property real feather: 1.0
+  }
+  ArcFx { arcColor: Qt.rgba(dial.accent.r, dial.accent.g, dial.accent.b, 0.18); halfWidth: dial.arcWidth * 1.5 }
+  ArcFx { id: valueArc }
 
+  // Fallback if the shader did not load: a Shape arc that snaps per sample.
+  Shape {
+    id: fallbackArc
+    anchors.fill: parent
+    visible: dial.arcVisible && valueArc.status !== ShaderEffect.Compiled
+    preferredRendererType: Shape.CurveRenderer
+    readonly property real fraction: dial.fullScale > 0 ? Math.max(0, Math.min(1, dial.value / dial.fullScale)) : 0
     ShapePath {
       strokeWidth: dial.arcWidth
-      strokeColor: dial.arcVisible ? dial.accent : "transparent"
+      strokeColor: dial.accent
       fillColor: "transparent"
       capStyle: ShapePath.RoundCap
-      PathAngleArc { centerX: dial.width / 2; centerY: dial.height / 2; radiusX: dial.arcRadius; radiusY: dial.arcRadius; startAngle: dial.dialStart; sweepAngle: dial.dialSweep * dial.fraction }
+      PathAngleArc { centerX: dial.width / 2; centerY: dial.height / 2; radiusX: dial.arcRadius; radiusY: dial.arcRadius; startAngle: dial.dialStart; sweepAngle: dial.dialSweep * fallbackArc.fraction }
     }
   }
 
@@ -138,6 +172,7 @@ Item {
     }
   }
 
+  // The readout snaps to each sample: a number that spins is not a reading.
   Column {
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.top: parent.verticalCenter
@@ -145,7 +180,7 @@ Item {
     spacing: 0
     Text {
       anchors.horizontalCenter: parent.horizontalCenter
-      text: dial.readout !== "" ? dial.readout : (dial.reading < 10 ? dial.reading.toFixed(1) : Math.round(dial.reading).toString())
+      text: dial.readout !== "" ? dial.readout : (dial.value < 10 ? dial.value.toFixed(1) : Math.round(dial.value).toString())
       color: dial.onScrim
       textFormat: Text.PlainText
       font.family: dial.fontFamily

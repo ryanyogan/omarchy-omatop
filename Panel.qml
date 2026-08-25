@@ -110,6 +110,20 @@ Panel {
   readonly property real cpuTemp: vitals && vitals.cpu ? Number(vitals.cpu.temp) || 0 : 0
   readonly property real memTotal: vitals && vitals.mem ? Number(vitals.mem.total) || 0 : 0
   readonly property real memUsed: vitals && vitals.mem ? Number(vitals.mem.used) || 0 : 0
+  // The culprit while the machine is under Pressure (the sampler names none
+  // when calm, so a quiet machine never accuses whatever is idling on top),
+  // otherwise uptime. Either way, a fact in the slot a product name used to waste.
+  readonly property string headline: {
+    if (!running || !vitals) return "System"
+    var id = root.culprit
+    var app = id !== "" && root.service && root.service.appsById ? root.service.appsById[id] : null
+    if (app) {
+      var figure = Number(app.cpu) >= 1 ? Model.pct(app.cpu, 0) : Model.bytes(app.mem)
+      return String(app.name || "") + "  " + figure
+    }
+    if (Number(vitals.uptime) > 0) return "up " + Model.age(0, Number(vitals.uptime) * 1000)
+    return "System"
+  }
   readonly property real memNow: memTotal > 0 ? memUsed / memTotal * 100 : -1
   readonly property real gpuNow: vitals && vitals.gpu ? Number(vitals.gpu.busy) || 0 : -1
 
@@ -238,11 +252,11 @@ Panel {
             Text {
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
-              text: "Omatop"
+              text: root.headline
               color: root.ink
               textFormat: Text.PlainText
               font.family: root.fontFamily
-              font.pixelSize: Style.font.heading
+              font.pixelSize: Style.font.body
               font.bold: true
             }
 

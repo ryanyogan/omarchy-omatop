@@ -23,6 +23,11 @@ Item {
   readonly property real refreshSeconds: Util.clamp(Number(widgetSetting("refreshSeconds", 1)) || 1, 1, 30)
   readonly property real rate: 1 / refreshSeconds
   readonly property bool reducedMotion: widgetSetting("reducedMotion", false) === true
+  // Overlay motion clock. Every frame the overlay produces costs the same
+  // (about 3.5 ms of CPU on a 5K display, whatever moves in it), so this is
+  // the whole cost of fluid motion. 20 divides both 60 and 120 Hz exactly;
+  // 12 is a lighter tier; 0 steps once per refresh like the bar and dropdown.
+  readonly property int motionHz: Util.clamp(Math.round(Number(widgetSetting("motionHz", 20))) || 0, 0, 30)
 
   // Paths. resolvedUrl percent-encodes, so decode before handing to a process.
   readonly property string pluginDir:

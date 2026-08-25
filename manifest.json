@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ryanyogan.omatop",
   "name": "Omatop",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "author": "Ryan Yogan",
   "license": "MIT",
   "description": "System monitor that shows you the culprit. Quiet bar glyph, clean dropdown, full-screen diagnostic overlay with vim keys.",
@@ -25,12 +25,14 @@
     "defaults": {
       "refreshSeconds": 1,
       "reducedMotion": false,
+      "motionHz": 20,
       "showPercent": false
     },
     "schema": [
       { "key": "showPercent", "type": "boolean", "label": "Show CPU percent next to the glyph", "defaultValue": false },
       { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion", "defaultValue": false },
-      { "key": "refreshSeconds", "type": "integer", "label": "Refresh every (seconds)", "min": 1, "max": 30, "step": 1, "defaultValue": 1 }
+      { "key": "refreshSeconds", "type": "integer", "label": "Refresh every (seconds)", "min": 1, "max": 30, "step": 1, "defaultValue": 1 },
+      { "key": "motionHz", "type": "integer", "label": "Overlay motion, at most (frames per second; 0 = step once per refresh)", "min": 0, "max": 30, "step": 1, "defaultValue": 20 }
     ]
   }
 }

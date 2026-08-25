@@ -44,14 +44,22 @@ BarWidget {
   readonly property string percentText:
     root.samplerReady && root.cpuNow >= 0 ? Model.pct(root.cpuNow, 0) : "--"
 
+  readonly property real memUsed:
+    service && service.vitals && service.vitals.mem ? Number(service.vitals.mem.used) || 0 : 0
+  readonly property real memTotal:
+    service && service.vitals && service.vitals.mem ? Number(service.vitals.mem.total) || 0 : 0
+
+  // Hover text: the Pressure verdict and the two numbers people actually
+  // want at a glance. No product name; the glyph already says which widget.
   readonly property string tooltip: {
-    if (root.samplerState === "missing") return "Omatop: sampler not built, open to build"
-    if (root.samplerState === "building") return "Omatop: building the sampler…"
-    if (root.samplerState === "buildFailed") return "Omatop: sampler build failed — open for the log"
-    if (root.samplerState === "crashed") return "Omatop: sampler crashed, restarting"
-    if (!root.samplerReady) return "Omatop: sampler starting…"
-    var head = "Omatop · " + Model.pressureLabel(root.pressureLevel)
+    if (root.samplerState === "missing") return "Sampler not built, open to build"
+    if (root.samplerState === "building") return "Building the sampler…"
+    if (root.samplerState === "buildFailed") return "Sampler build failed — open for the log"
+    if (root.samplerState === "crashed") return "Sampler crashed, restarting"
+    if (!root.samplerReady) return "Sampler starting…"
+    var head = Model.pressureLabel(root.pressureLevel)
     if (root.cpuNow >= 0) head += " · CPU " + Model.pct(root.cpuNow, 0)
+    if (root.memTotal > 0) head += " · MEM " + Model.pct(100 * root.memUsed / root.memTotal, 0)
     var reason = service && service.pressure ? String(service.pressure.reason || "") : ""
     return root.pressureLevel !== "calm" && reason !== "" ? head + " · " + reason : head
   }

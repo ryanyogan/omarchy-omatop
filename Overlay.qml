@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import qs.Commons
@@ -39,8 +40,70 @@ Item {
 
   readonly property var nowMs: service ? service.lastTickMs : 0
   readonly property bool live: service && service.samplerState === "running"
+  // Motion rate, tuned to the machine. The setting is a ceiling; the tier
+  // comes from core count, and under real Pressure the overlay steps once
+  // per sample instead: the frames are CPU time, and that is the moment the
+  // machine has none to spare. Rises again when things calm down.
+  readonly property int motionCeiling: service ? service.motionHz : 20
+  readonly property int cores: service && service.vitals && service.vitals.cpu && service.vitals.cpu.cores ? service.vitals.cpu.cores.length : 0
+  readonly property int machineTier: cores === 0 ? motionCeiling : cores >= 8 ? 20 : cores >= 4 ? 12 : 0
+  readonly property bool underPressure: !!(service && service.pressure && (service.pressure.level === "heavy" || service.pressure.level === "critical"))
+  readonly property int motionHz: underPressure ? 0 : Math.min(motionCeiling, machineTier)
+  readonly property string motionNote: !animated ? ""
+    : motionCeiling === 0 ? ""
+    : underPressure ? "motion paused · machine under pressure"
+    : motionHz < motionCeiling ? "motion " + motionHz + " fps · tuned for this machine"
+    : "motion " + motionHz + " fps"
+  onMotionHzChanged: if (motionHz <= 0) settle()
   readonly property bool animated: !(service && service.reducedMotion)
   readonly property real tickMs: service ? 1000 / service.rate : 5000
+
+  // ---------------------------------------------------------------- motion
+  // One clock moves everything. `phase` runs 0 -> 1 across the interval
+  // after each sample lands; dials and strips derive their motion from it.
+  // Every frame the window produces costs the same fixed amount whatever
+  // moves in it, so the clock rate (`motionHz`, a setting; 20 divides both
+  // 60 and 120 Hz refresh exactly) is the whole cost of motion.
+  property real phase: 1
+  property double phaseStartMs: 0
+  property real phaseDurationMs: 1000
+  property double lastBeatMs: 0
+  // Strips only scroll at the base 1 s cadence: at slower refreshes a slide
+  // would lie about sample spacing, and the true scroll rate is imperceptible.
+  readonly property bool sliding: tickMs <= 1000
+
+  Timer {
+    id: motionClock
+    interval: Math.max(16, Math.round(1000 / Math.max(1, root.motionHz)))
+    repeat: true
+    onTriggered: {
+      var p = (Date.now() - root.phaseStartMs) / root.phaseDurationMs
+      if (p >= 1) { root.phase = 1; stop() } else root.phase = p
+    }
+  }
+
+  // Start a glide of `ms` from wherever things are now.
+  function glide(ms) {
+    if (!opened || !animated || motionHz <= 0) { settle(); return }
+    phaseStartMs = Date.now()
+    phaseDurationMs = Math.max(50, ms)
+    phase = 0
+    motionClock.restart()
+  }
+  function settle() { motionClock.stop(); phase = 1 }
+
+  // A sample landed. Glide across the coming interval, unless this one
+  // arrived at an implausible time (the immediate tick on open, a stall)
+  // in which case land at once rather than misreport its timing.
+  function beat() {
+    var now = Date.now()
+    var gap = lastBeatMs > 0 ? now - lastBeatMs : 0
+    lastBeatMs = now
+    if (gap < tickMs * 0.5 || gap > tickMs * 2) { settle(); return }
+    glide(Math.min(tickMs, 1000))
+  }
+  // Focusing an App re-points the dials: a short glide, no sample involved.
+  onDetailAppChanged: if (opened) glide(240)
   readonly property var cursorApp: {
     if (cursorIndex < 0 || cursorIndex >= rows.count) return null
     var row = rows.get(cursorIndex)
@@ -119,6 +182,8 @@ Item {
   function close() {
     if (!opened) return
     opened = false
+    settle()
+    lastBeatMs = 0
     if (service) {
       service.surfaceClosed()
       service.requestDetail("")
@@ -209,7 +274,7 @@ Item {
 
   Connections {
     target: root.service
-    function onTicked() { if (root.opened) root.rebuild() }
+    function onTicked() { if (root.opened) { root.rebuild(); root.beat() } }
     function onActionFinished(ev) {
       if (!root.opened) return
       var name = root.service.appsById[ev.id] ? root.service.appsById[ev.id].name : ev.id
@@ -469,10 +534,17 @@ Item {
         anchors.right: parent.right
         height: Style.space(30)
 
+        // Which machine this is: hostname and kernel, read once on open.
+        FileView { id: hostnameFile; path: "/etc/hostname" }
+        FileView { id: kernelFile; path: "/proc/sys/kernel/osrelease" }
         Text {
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          text: "Omatop"
+          text: {
+            var host = String(hostnameFile.text() || "").trim()
+            var kernel = String(kernelFile.text() || "").trim()
+            return [host, kernel ? "linux " + kernel : ""].filter(function(x) { return x !== "" }).join("  ·  ")
+          }
           color: root.dim
           textFormat: Text.PlainText
           font.family: root.fontFamily
@@ -492,12 +564,9 @@ Item {
             color: root.pressureColor
             anchors.verticalCenter: parent.verticalCenter
             Behavior on color { enabled: root.animated; ColorAnimation { duration: 300 } }
-            SequentialAnimation on opacity {
-              running: root.animated && root.service && root.service.pressure.level === "critical"
-              loops: Animation.Infinite
-              NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
-              NumberAnimation { to: 1; duration: 900; easing.type: Easing.InOutSine }
-            }
+            // No pulse: a looping animation pins the window at full refresh
+            // (measured at ~3-6% of a core), and it would fire exactly when
+            // the machine can least afford it. The colour is the signal.
           }
           Text {
             text: root.service ? Model.pressureLabel(root.service.pressure.level) : "calm"
@@ -552,7 +621,14 @@ Item {
               anchors.verticalCenter: parent.verticalCenter
               width: Style.space(6); height: Style.space(14)
               color: root.ink
-              SequentialAnimation on opacity { running: root.mode === "search" && root.animated; loops: Animation.Infinite; NumberAnimation { to: 0; duration: 500 } NumberAnimation { to: 1; duration: 500 } }
+              // A blink is two frames a second, not sixty: a looping
+              // opacity animation kept the whole window at full refresh.
+              Timer {
+                running: root.mode === "search" && root.animated
+                interval: 500; repeat: true
+                onRunningChanged: parent.opacity = 1
+                onTriggered: parent.opacity = parent.opacity > 0.5 ? 0 : 1
+              }
             }
           }
           Text {
@@ -591,7 +667,7 @@ Item {
             readout: Model.pct(root.clusterCpu)
             unit: root.detailApp ? "of machine" : "%"
             accent: root.pressureColor
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
           }
           Dial {
             id: memDial
@@ -602,7 +678,7 @@ Item {
             readout: root.detailApp ? Model.bytes(root.detailApp.mem) : (root.service && root.service.vitals ? Model.bytes(root.service.vitals.mem.used) : "--")
             sublabel: "of " + Model.bytes(root.memTotal)
             accent: root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
           }
           Dial {
             id: gpuDial
@@ -615,7 +691,7 @@ Item {
             unit: root.service && root.service.vitals && root.service.vitals.gpu ? Model.temp(root.service.vitals.gpu.temp) + " gpu" : "%"
             engaged: !root.detailApp || root.detailApp.gpu >= 0
             accent: root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
           }
           Dial {
             id: tempDial
@@ -627,7 +703,7 @@ Item {
             unit: root.service && root.service.vitals && root.service.vitals.fan && root.service.vitals.fan.available && root.service.vitals.fan.rpm > 0 ? root.service.vitals.fan.rpm + " rpm" : "cpu"
             engaged: root.service && root.service.vitals && root.service.vitals.cpu.temp > 0
             accent: root.service && root.service.vitals && root.service.vitals.cpu.temp >= 90 ? root.urgent : root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
           }
         }
       }
@@ -746,38 +822,38 @@ Item {
               samples: ledger.h ? ledger.h.cpu : []; valueText: ledger.v ? Model.pct(ledger.v.cpu.total) : "--"
               formatter: function(x) { return Model.pct(x) }
               ink: root.ink; line: root.pressureColor; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding
               Behavior on line { enabled: root.animated; ColorAnimation { duration: 300 } } }
             Strip { width: strips.width; height: ledger.stripHeight; label: "memory"; maxValue: 100
               samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) + "  " + Model.pct(root.clusterMem) : "--"
               formatter: function(x) { return Model.pct(x) }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
             Strip { width: strips.width; height: ledger.stripHeight; visible: root.showGpu; label: "gpu"; maxValue: 100
               samples: ledger.h ? ledger.h.gpu : []; valueText: ledger.v && ledger.v.gpu ? Model.pct(ledger.v.gpu.busy) : "--"
               formatter: function(x) { return Model.pct(x) }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
             Strip { width: strips.width; height: ledger.stripHeight; label: "temperature"; maxValue: 100; available: ledger.v && ledger.v.cpu.temp > 0
               samples: ledger.h ? ledger.h.temp : []; valueText: ledger.v ? Model.temp(ledger.v.cpu.temp) : "--"
               formatter: function(x) { return Model.temp(x) }
               ink: root.ink; line: ledger.v && ledger.v.cpu.temp >= 90 ? root.urgent : root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
             Strip { width: strips.width; height: ledger.stripHeight; label: "network"; maxValue: 0; floorValue: 1024 * 64
               samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓ " + Model.bytes(ledger.v.net.rx) + "/s   ↑ " + Model.bytes(ledger.v.net.tx) + "/s" : "--"
               formatter: function(x) { return "↓ " + Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
             Strip { width: strips.width; height: ledger.stripHeight; label: "disk"; maxValue: 0; floorValue: 1024 * 1024
               samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "read " + Model.bytes(ledger.v.disk.read) + "/s   write " + Model.bytes(ledger.v.disk.write) + "/s" : "--"
               formatter: function(x) { return "write " + Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
             Strip { width: strips.width; height: ledger.stripHeight; visible: ledger.v && ledger.v.power && ledger.v.power.available; label: "power"; maxValue: 0; floorValue: 30
               samples: ledger.h ? ledger.h.power : []; valueText: ledger.v && ledger.v.power ? Model.watts(ledger.v.power.watts) : "--"
               formatter: function(x) { return Model.watts(x) }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
 
             Item {
               width: strips.width
@@ -830,17 +906,17 @@ Item {
                 samples: detailPane.d ? detailPane.d.cpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.cpu) : ""
                 formatter: function(x) { return Model.pct(x) }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
               Strip { width: parent.width; height: detailPane.stripHeight; label: "memory"; maxValue: 0; floorValue: 64 * 1024 * 1024
                 samples: detailPane.d ? detailPane.d.mem : []; valueText: detailPane.app ? Model.bytes(detailPane.app.mem) : ""
                 formatter: function(x) { return Model.bytes(x) }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
               Strip { width: parent.width; height: detailPane.stripHeight; visible: root.showGpu && detailPane.app && detailPane.app.gpu >= 0; label: "gpu"; maxValue: 0; floorValue: 10
                 samples: detailPane.d ? detailPane.d.gpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.gpu) : ""
                 formatter: function(x) { return Model.pct(x) }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated }
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
               Column {
                 width: parent.width
                 spacing: Style.space(2)
@@ -1149,6 +1225,15 @@ Item {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             font.bold: true
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Text {
+            visible: root.motionNote !== ""
+            text: root.motionNote + "  ·"
+            color: root.faint
+            textFormat: Text.PlainText
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
             anchors.verticalCenter: parent.verticalCenter
           }
           Text {

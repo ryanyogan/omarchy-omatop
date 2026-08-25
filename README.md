@@ -63,11 +63,13 @@ The vocabulary lives in [CONTEXT.md](CONTEXT.md), the wire contract in [docs/sam
 
 ## Settings
 
-Show CPU percent next to the glyph, reduce motion, and the refresh interval, all in the bar widget's settings.
+Show CPU percent next to the glyph, reduce motion, the refresh interval, and the overlay's motion rate, all in the bar widget's settings.
+
+**Motion rate.** With the cluster open the needles, arcs and timelines glide continuously between samples instead of stepping once a second. Every frame the overlay draws costs the same (about 3.5 ms of CPU on a 5K display, whatever moves in it), so the frame rate is the whole price of that motion: 20 fps costs about 7% of one core while the cluster is open, 12 fps about 5%, stepping once per refresh about 3.5%. The rate is picked for the machine: 20 fps with eight or more cores, 12 with four to seven, stepping below that, and it drops to stepping whenever the kernel reports heavy or critical Pressure, since that is exactly when there is no CPU to spare. The footer says which is in effect. The setting is a ceiling on all of that; reduce motion turns it off along with every other animation.
 
 ## Cost
 
-Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`): with nothing open the plugin adds about a quarter of a percent of one core and 10 MiB; the sampler sends a 790 byte tick each refresh while nothing is open and only sends the full App list while a surface is looking at it.
+Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`, harness in `docs/measure.py`): with nothing open the plugin adds about half a percent of one core and 10 MiB; the sampler sends a 790 byte tick each refresh while nothing is open and only sends the full App list while a surface is looking at it. The quick view costs under 1% of one core. The cluster costs about 7% of one core at the default motion rate, in every mode: it used to triple to 11% while you typed a search or while the machine was under critical pressure, because two looping animations pinned the window to the display's refresh rate.
 
 ## License
 

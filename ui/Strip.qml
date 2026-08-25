@@ -9,6 +9,12 @@ import qs.Commons
 // Drawn with Shapes, not Canvas: a 120-point polyline is tessellated on the
 // GPU in microseconds, where rasterising a 3000x440 canvas in software every
 // second was the single largest cost of the open overlay.
+//
+// Motion. The path is rebuilt once per sample and then slid left by one
+// step as the parent's `phase` runs 0 -> 1 (a transform, no re-tessellation),
+// so the timeline scrolls at a constant rate and the newest point arrives at
+// the right edge exactly when its successor is due. The path carries one
+// extra, older sample on the left so the slide never exposes a gap.
 Item {
   id: root
 
@@ -29,11 +35,24 @@ Item {
   property bool compact: false
   property bool animated: true
   property bool available: true
+  property real phase: 1            // 0..1 from the parent's motion clock
+  property bool sliding: false      // parent: samples arrive at a slide-worthy cadence
 
   readonly property int headerHeight: Style.space(18)
 
-  clip: true
   opacity: available ? 1 : 0.35
+
+  // The sample that fell off the left edge on the last update, kept so the
+  // slide has something to show there. NaN means "none", so no slide.
+  property real droppedSample: NaN
+  property var lastSamples: null
+  onSamplesChanged: {
+    var prev = lastSamples
+    var cur = samples || []
+    droppedSample = prev && prev.length === capacity && cur.length === capacity ? prev[0] : NaN
+    lastSamples = cur
+  }
+  readonly property bool slideActive: sliding && animated && scrub < 0 && count === capacity && !isNaN(droppedSample)
 
   readonly property real scale: {
     if (maxValue > 0) return maxValue
@@ -62,6 +81,7 @@ Item {
   readonly property var points: {
     var out = []
     var data = samples || []
+    if (!isNaN(droppedSample) && data.length === capacity) out.push(Qt.point(startX - step, yOf(droppedSample)))
     for (var i = 0; i < data.length; i++) out.push(Qt.point(startX + i * step, yOf(data[i])))
     return out
   }
@@ -105,20 +125,31 @@ Item {
     y: root.headerHeight
     width: parent.width
     height: Math.max(4, parent.height - root.headerHeight)
+    clip: true
 
-    // Guides: baseline and a dashed half-way line.
+    // Guides: baseline and a dashed half-way line. The dashes are one
+    // 1 px tall canvas painted on resize, not hundreds of Rectangles.
     Rectangle { x: 0; y: Math.round(root.plotFloor); width: parent.width; height: 1; color: root.hairline }
-    Row {
+    Canvas {
       x: 0
       y: Math.round((root.plotTop + root.plotFloor) / 2)
-      spacing: 4
-      clip: true
       width: parent.width
-      Repeater {
-        model: Math.ceil(plot.width / 6)
-        Rectangle { width: 2; height: 1; color: root.hairline }
+      height: 1
+      onWidthChanged: requestPaint()
+      onPaint: {
+        var ctx = getContext("2d")
+        ctx.clearRect(0, 0, width, height)
+        ctx.fillStyle = root.hairline
+        for (var x = 0; x < width; x += 6) ctx.fillRect(x, 0, 2, 1)
       }
     }
+
+    Item {
+      id: slider
+      y: 0
+      width: parent.width
+      height: parent.height
+      x: root.slideActive ? root.step * (1 - root.phase) : 0
 
     Shape {
       anchors.fill: parent
@@ -158,7 +189,7 @@ Item {
       }
     }
 
-    // Newest sample: a dot with a halo.
+    // Newest sample: a dot with a halo. It rides the slide with its sample.
     Rectangle {
       visible: root.points.length >= 2
       x: root.lastPoint.x - width / 2
@@ -166,6 +197,7 @@ Item {
       width: 10; height: 10; radius: 5
       color: Qt.rgba(root.line.r, root.line.g, root.line.b, 0.25)
       Rectangle { anchors.centerIn: parent; width: 4; height: 4; radius: 2; color: root.line }
+    }
     }
 
     // Scrubber.
