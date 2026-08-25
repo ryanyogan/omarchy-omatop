@@ -602,3 +602,25 @@ The cluster now moves the way an instrument cluster should, and its worst
 states (search, critical) are 30 to 40% cheaper than before. Its common state
 costs twice what it did, for the motion. `motionHz: 0` restores the old cost
 exactly; reduce motion does the same and more.
+
+## Third pass: two cadences (2026-08-25, commit after 58ad34a)
+
+The overlay now takes a reading every 5 s (`overlaySeconds`) for the dials,
+trip computer, pressure line and list, while the timelines keep taking every
+1 s sample. The row meters joined the shared motion clock (no Behaviors), the
+needle glide runs 3 s of each 5 s interval, and the default motion ceiling
+rose to 30 fps on machines with sixteen or more cores.
+
+Same method as above (`utime+stime` from `/proc/<pid>/stat`, one 30 s
+window, no input), 2880x1920 @ 120 Hz, 24 cores, 17 recent Apps listed:
+
+| State | Shell CPU |
+|---|---|
+| Overlay open, 30 fps | 11.27% of one core |
+| Closed, right after | 0.77% of one core |
+
+That is within a point of the 3.5 ms x 30 frames = 10.5% the frame model
+predicts, so gliding eighty meters on the clock and rebuilding the list every
+fifth tick instead of every tick cost nothing measurable either way: the
+frame rate is still the whole price. `motionHz: 20` returns to the ~7% of the
+second pass.

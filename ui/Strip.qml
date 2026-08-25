@@ -13,8 +13,12 @@ import qs.Commons
 // Motion. The path is rebuilt once per sample and then slid left by one
 // step as the parent's `phase` runs 0 -> 1 (a transform, no re-tessellation),
 // so the timeline scrolls at a constant rate and the newest point arrives at
-// the right edge exactly when its successor is due. The path carries one
-// extra, older sample on the left so the slide never exposes a gap.
+// the right edge exactly when its successor is due. While the ring is still
+// filling, the new path shifted right by one step is exactly the old path
+// (with the newest point waiting just past the right edge, clipped), so the
+// slide is honest from the second sample on. Once the ring is full the path
+// carries one extra, older sample on the left so the slide never exposes a
+// gap where the oldest point fell off.
 Item {
   id: root
 
@@ -43,16 +47,23 @@ Item {
   opacity: available ? 1 : 0.35
 
   // The sample that fell off the left edge on the last update, kept so the
-  // slide has something to show there. NaN means "none", so no slide.
+  // slide has something to show there once the ring is full. NaN means the
+  // ring is still filling (or this is the first data), so no extra point.
   property real droppedSample: NaN
+  // True when the last update was exactly one new sample: the ring grew by
+  // one, or a full ring rotated. Anything else (first data, a restart, a
+  // restored ring) snaps, because there is no previous frame to slide from.
+  property bool slideReady: false
   property var lastSamples: null
   onSamplesChanged: {
     var prev = lastSamples
     var cur = samples || []
-    droppedSample = prev && prev.length === capacity && cur.length === capacity ? prev[0] : NaN
+    var rotated = prev !== null && prev.length === capacity && cur.length === capacity
+    droppedSample = rotated ? prev[0] : NaN
+    slideReady = rotated || (prev !== null && cur.length >= 2 && cur.length === prev.length + 1)
     lastSamples = cur
   }
-  readonly property bool slideActive: sliding && animated && scrub < 0 && count === capacity && !isNaN(droppedSample)
+  readonly property bool slideActive: sliding && animated && scrub < 0 && slideReady
 
   readonly property real scale: {
     if (maxValue > 0) return maxValue

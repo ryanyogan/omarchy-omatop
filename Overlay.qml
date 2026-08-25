@@ -38,80 +38,153 @@ Item {
   property var confirmApp: null
   property string toast: ""
 
-  readonly property var nowMs: service ? service.lastTickMs : 0
   readonly property bool live: service && service.samplerState === "running"
+  readonly property bool animated: !(service && service.reducedMotion)
+
+  // ---------------------------------------------------------------- cadence
+  // Two cadences. Samples arrive every `tickMs` (the sampler rate, 1 Hz by
+  // default) and feed the ledger: the timelines take every one and slide.
+  // A reading is taken every `readingTicks` samples (`overlaySeconds`, 5 s by
+  // default) and feeds everything else: the dials, the trip computer, the
+  // pressure line, the list and its meters, the focused App's facts. Between
+  // readings those glide toward the new figures; nothing in them jumps once
+  // a second. `reading` is a frozen snapshot of the service at that moment,
+  // so every readout on the surface describes the same instant.
+  readonly property real tickMs: service ? 1000 / service.rate : 1000
+  readonly property real readingMs: service ? service.overlaySeconds * 1000 : 5000
+  readonly property int readingTicks: Math.max(1, Math.round(readingMs / tickMs))
+  property int ticksSinceReading: 0
+  property bool readingDue: true
+  property var reading: null
+  readonly property double nowMs: reading ? reading.t : 0
+  readonly property var vitals: reading ? reading.vitals : null
+  readonly property var pressure: reading && reading.pressure ? reading.pressure : ({ level: "calm", score: 0, reason: "" })
+  readonly property string culprit: reading ? reading.culprit : ""
+
+  function takeReading() {
+    if (!service) return
+    reading = {
+      t: service.lastTickMs,
+      vitals: service.vitals,
+      pressure: service.pressure,
+      culprit: service.culprit,
+      apps: service.apps,
+      appsById: service.appsById,
+      offenders: service.offenders,
+      processes: service.processes
+    }
+    ticksSinceReading = 0
+    readingDue = false
+    rebuild()
+  }
+
   // Motion rate, tuned to the machine. The setting is a ceiling; the tier
   // comes from core count, and under real Pressure the overlay steps once
-  // per sample instead: the frames are CPU time, and that is the moment the
+  // per reading instead: the frames are CPU time, and that is the moment the
   // machine has none to spare. Rises again when things calm down.
-  readonly property int motionCeiling: service ? service.motionHz : 20
-  readonly property int cores: service && service.vitals && service.vitals.cpu && service.vitals.cpu.cores ? service.vitals.cpu.cores.length : 0
-  readonly property int machineTier: cores === 0 ? motionCeiling : cores >= 8 ? 20 : cores >= 4 ? 12 : 0
-  readonly property bool underPressure: !!(service && service.pressure && (service.pressure.level === "heavy" || service.pressure.level === "critical"))
+  readonly property int motionCeiling: service ? service.motionHz : 30
+  readonly property int cores: vitals && vitals.cpu && vitals.cpu.cores ? vitals.cpu.cores.length : 0
+  readonly property int machineTier: cores === 0 ? motionCeiling : cores >= 16 ? 30 : cores >= 8 ? 20 : cores >= 4 ? 12 : 0
+  readonly property bool underPressure: pressure.level === "heavy" || pressure.level === "critical"
   readonly property int motionHz: underPressure ? 0 : Math.min(motionCeiling, machineTier)
-  readonly property string motionNote: !animated ? ""
-    : motionCeiling === 0 ? ""
-    : underPressure ? "motion paused · machine under pressure"
-    : motionHz < motionCeiling ? "motion " + motionHz + " fps · tuned for this machine"
-    : "motion " + motionHz + " fps"
+  readonly property string cadenceNote: "readings every " + Model.span(readingMs)
+  readonly property string motionNote: !animated ? cadenceNote
+    : motionCeiling === 0 ? cadenceNote
+    : underPressure ? cadenceNote + " · motion paused, machine under pressure"
+    : motionHz < motionCeiling ? cadenceNote + " · motion " + motionHz + " fps, tuned for this machine"
+    : cadenceNote + " · motion " + motionHz + " fps"
   onMotionHzChanged: if (motionHz <= 0) settle()
-  readonly property bool animated: !(service && service.reducedMotion)
-  readonly property real tickMs: service ? 1000 / service.rate : 5000
+  readonly property bool motionOn: opened && animated && motionHz > 0
 
   // ---------------------------------------------------------------- motion
-  // One clock moves everything. `phase` runs 0 -> 1 across the interval
-  // after each sample lands; dials and strips derive their motion from it.
-  // Every frame the window produces costs the same fixed amount whatever
-  // moves in it, so the clock rate (`motionHz`, a setting; 20 divides both
-  // 60 and 120 Hz refresh exactly) is the whole cost of motion.
+  // One clock moves everything; it runs two phases. `phase` runs 0 -> 1
+  // across each sample interval and slides the timelines. `glidePhase` runs
+  // 0 -> 1 over `glideMs` after each reading and carries the needles, the
+  // value arcs and the row meters to the new figures. Every frame the window
+  // produces costs the same fixed amount whatever moves in it, so the clock
+  // rate (`motionHz`) is the whole cost of motion, and adding the meters to
+  // the same clock cost nothing.
   property real phase: 1
+  property real glidePhase: 1
+  property real readingProgress: 1     // 0 at a reading, 1 when the next is due
   property double phaseStartMs: 0
   property real phaseDurationMs: 1000
+  property double glideStartMs: 0
+  property real glideDurationMs: 1000
+  property double readingTakenMs: 0
   property double lastBeatMs: 0
-  // Strips only scroll at the base 1 s cadence: at slower refreshes a slide
-  // would lie about sample spacing, and the true scroll rate is imperceptible.
-  readonly property bool sliding: tickMs <= 1000
+  // Needles take about three fifths of the interval to arrive, then rest:
+  // prompt enough to read as a response, slow enough to read as an instrument.
+  readonly property real glideMs: Math.max(400, Math.min(3000, readingMs * 0.6))
+  // The timelines scroll at any cadence a slide can still show. Past five
+  // seconds the true scroll rate is below a pixel a second, so they step.
+  readonly property bool sliding: tickMs <= 5000
 
   Timer {
     id: motionClock
     interval: Math.max(16, Math.round(1000 / Math.max(1, root.motionHz)))
     repeat: true
     onTriggered: {
-      var p = (Date.now() - root.phaseStartMs) / root.phaseDurationMs
-      if (p >= 1) { root.phase = 1; stop() } else root.phase = p
+      var now = Date.now()
+      var p = (now - root.phaseStartMs) / root.phaseDurationMs
+      var g = (now - root.glideStartMs) / root.glideDurationMs
+      var r = root.readingTakenMs > 0 ? (now - root.readingTakenMs) / root.readingMs : 1
+      root.phase = p >= 1 ? 1 : p
+      root.glidePhase = g >= 1 ? 1 : g
+      root.readingProgress = r >= 1 ? 1 : r
+      if (p >= 1 && g >= 1 && r >= 1) stop()
     }
   }
+  function runClock() { if (!motionClock.running) motionClock.start() }
 
-  // Start a glide of `ms` from wherever things are now.
-  function glide(ms) {
-    if (!opened || !animated || motionHz <= 0) { settle(); return }
+  // Slide the timelines by one step across `ms`.
+  function slide(ms) {
+    if (!motionOn) { phase = 1; return }
     phaseStartMs = Date.now()
     phaseDurationMs = Math.max(50, ms)
     phase = 0
-    motionClock.restart()
+    runClock()
   }
-  function settle() { motionClock.stop(); phase = 1 }
+  // Glide the needles and meters to their new figures over `ms`. Must be
+  // called before the figures change: a dial that sees a new value while the
+  // glide phase reads 1 lands on it at once.
+  function glide(ms) {
+    if (!motionOn) { glidePhase = 1; return }
+    glideStartMs = Date.now()
+    glideDurationMs = Math.max(50, ms)
+    glidePhase = 0
+    runClock()
+  }
+  function settle() { motionClock.stop(); phase = 1; glidePhase = 1; readingProgress = 1 }
 
-  // A sample landed. Glide across the coming interval, unless this one
+  // A sample landed. Slide across the coming interval, unless this one
   // arrived at an implausible time (the immediate tick on open, a stall)
-  // in which case land at once rather than misreport its timing.
-  function beat() {
+  // in which case land at once rather than misreport its timing. When the
+  // sample is also a reading, start the glide before the figures change.
+  function beat(isReading) {
     var now = Date.now()
     var gap = lastBeatMs > 0 ? now - lastBeatMs : 0
     lastBeatMs = now
-    if (gap < tickMs * 0.5 || gap > tickMs * 2) { settle(); return }
-    glide(Math.min(tickMs, 1000))
+    if (gap < tickMs * 0.5 || gap > tickMs * 2) phase = 1
+    else slide(tickMs)
+    if (isReading) {
+      readingTakenMs = now
+      readingProgress = 0
+      glide(glideMs)
+    }
   }
   // Focusing an App re-points the dials: a short glide, no sample involved.
-  onDetailAppChanged: if (opened) glide(240)
+  // Keyed on the id, not the App object: every reading rebinds the object,
+  // and that must not cut a running glide short.
+  onDetailIdChanged: if (opened) glide(240)
   readonly property var cursorApp: {
     if (cursorIndex < 0 || cursorIndex >= rows.count) return null
     var row = rows.get(cursorIndex)
     if (!row || row.type !== "app") return null
-    return service ? service.appsById[row.appId] || null : null
+    return reading ? reading.appsById[row.appId] || null : null
   }
-  readonly property var detailApp: service && detailId ? (service.appsById[detailId] || null) : null
-  readonly property bool showGpu: service && service.vitals && service.vitals.gpu && service.vitals.gpu.available === true
+  readonly property var detailApp: reading && detailId ? (reading.appsById[detailId] || null) : null
+  readonly property bool showGpu: !!(vitals && vitals.gpu && vitals.gpu.available === true)
 
   // ---- Palette -------------------------------------------------------------
   // No card: the cluster floats on a deep scrim, like the speed test overlay.
@@ -124,14 +197,14 @@ Item {
   readonly property color accent: Color.accent
   readonly property color urgent: "#ff6b6b"
   readonly property color selectedBackground: Qt.rgba(1, 1, 1, 0.08)
-  readonly property color pressureColor: Model.pressureColor(service ? service.pressure.level : "calm", accent, urgent)
+  readonly property color pressureColor: Model.pressureColor(pressure.level, accent, urgent)
   readonly property string fontFamily: Style.font.family
 
   // What the cluster is pointed at: the machine, or the focused App.
-  readonly property real memTotal: service && service.vitals ? Number(service.vitals.mem.total) || 0 : 0
-  readonly property real clusterCpu: detailApp ? detailApp.cpu : (service && service.vitals ? service.vitals.cpu.total : 0)
-  readonly property real clusterMem: detailApp ? (memTotal > 0 ? detailApp.mem / memTotal * 100 : 0) : (service && service.vitals && memTotal > 0 ? service.vitals.mem.used / memTotal * 100 : 0)
-  readonly property real clusterGpu: detailApp ? Math.max(0, detailApp.gpu) : (service && service.vitals && service.vitals.gpu ? service.vitals.gpu.busy : 0)
+  readonly property real memTotal: vitals ? Number(vitals.mem.total) || 0 : 0
+  readonly property real clusterCpu: detailApp ? detailApp.cpu : (vitals ? vitals.cpu.total : 0)
+  readonly property real clusterMem: detailApp ? (memTotal > 0 ? detailApp.mem / memTotal * 100 : 0) : (vitals && memTotal > 0 ? vitals.mem.used / memTotal * 100 : 0)
+  readonly property real clusterGpu: detailApp ? Math.max(0, detailApp.gpu) : (vitals && vitals.gpu ? vitals.gpu.busy : 0)
   readonly property string clusterName: detailApp ? detailApp.name : ""
 
   // ---- Lifecycle -----------------------------------------------------------
@@ -169,7 +242,10 @@ Item {
       if (service.samplerState === "missing") service.startSampler()
     }
     forceReorder = true
-    rebuild()
+    // Read the service as it stands so the surface is never empty, then let
+    // the immediate sample the service asks for on open become a reading too.
+    takeReading()
+    readingDue = true
     if (rows.count > 0 && !cursorApp) moveCursor(1)
     Qt.callLater(function() {
       if (!root.opened) return
@@ -184,6 +260,8 @@ Item {
     opened = false
     settle()
     lastBeatMs = 0
+    readingTakenMs = 0
+    reading = null
     if (service) {
       service.surfaceClosed()
       service.requestDetail("")
@@ -217,7 +295,7 @@ Item {
     var now = Date.now()
     var allowMove = forceReorder || (now - lastReorderMs > 2000)
     forceReorder = false
-    var desired = Model.sections(service.apps, service.offenders, service.pins, filter, sortKey, collapsed)
+    var desired = Model.sections(reading ? reading.apps : [], reading ? reading.offenders : [], service.pins, filter, sortKey, collapsed)
     // Two rows must never share a key: the keyed diff below moves rows by
     // index, and a duplicate makes it move on a stale index, writing one
     // row's identity onto another. Drop later occurrences rather than
@@ -274,12 +352,32 @@ Item {
 
   Connections {
     target: root.service
-    function onTicked() { if (root.opened) { root.rebuild(); root.beat() } }
+    // Every sample slides the timelines; every readingTicks-th one (or the
+    // first after something asked for it) becomes the reading.
+    function onTicked() {
+      if (!root.opened) return
+      root.ticksSinceReading += 1
+      var isReading = root.readingDue || root.ticksSinceReading >= root.readingTicks
+      root.beat(isReading)
+      if (isReading) root.takeReading()
+    }
+    // A pin is an edit, not a sample: re-stamp the reading in place so the
+    // row moves now, without pulling newer figures into the surface.
+    function onPinsChanged() {
+      if (!root.opened || !root.reading) return
+      var list = root.reading.apps
+      for (var i = 0; i < list.length; i++) list[i].pinned = Model.isPinned(root.service.pins, list[i])
+      root.forceReorder = true
+      root.rebuild()
+    }
     function onActionFinished(ev) {
       if (!root.opened) return
       var name = root.service.appsById[ev.id] ? root.service.appsById[ev.id].name : ev.id
       root.toast = ev.ok ? (ev.action + ": " + name) : ("failed " + ev.action + ": " + (ev.error || "unknown"))
       toastTimer.restart()
+      // Something was stopped, paused or restarted: show the consequence on
+      // the next sample rather than up to a reading later.
+      if (ev.ok) root.readingDue = true
     }
   }
   Timer { id: toastTimer; interval: 3000; onTriggered: root.toast = "" }
@@ -569,7 +667,7 @@ Item {
             // the machine can least afford it. The colour is the signal.
           }
           Text {
-            text: root.service ? Model.pressureLabel(root.service.pressure.level) : "calm"
+            text: Model.pressureLabel(root.pressure.level)
             color: root.pressureColor
             textFormat: Text.PlainText
             font.family: root.fontFamily
@@ -581,8 +679,8 @@ Item {
             Behavior on color { enabled: root.animated; ColorAnimation { duration: 300 } }
           }
           Text {
-            visible: root.service && root.service.pressure.level !== "calm" && root.service.pressure.reason
-            text: root.service ? root.service.pressure.reason : ""
+            visible: root.pressure.level !== "calm" && !!root.pressure.reason
+            text: root.pressure.reason || ""
             color: root.dim
             textFormat: Text.PlainText
             font.family: root.fontFamily
@@ -667,7 +765,7 @@ Item {
             readout: Model.pct(root.clusterCpu)
             unit: root.detailApp ? "of machine" : "%"
             accent: root.pressureColor
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
           }
           Dial {
             id: memDial
@@ -675,10 +773,10 @@ Item {
             label: root.clusterName ? root.clusterName + "  memory" : "memory"
             value: root.clusterMem
             fullScale: 100
-            readout: root.detailApp ? Model.bytes(root.detailApp.mem) : (root.service && root.service.vitals ? Model.bytes(root.service.vitals.mem.used) : "--")
+            readout: root.detailApp ? Model.bytes(root.detailApp.mem) : (root.vitals ? Model.bytes(root.vitals.mem.used) : "--")
             sublabel: "of " + Model.bytes(root.memTotal)
             accent: root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
           }
           Dial {
             id: gpuDial
@@ -688,22 +786,22 @@ Item {
             value: root.clusterGpu
             fullScale: 100
             readout: root.detailApp && root.detailApp.gpu < 0 ? "--" : Model.pct(root.clusterGpu)
-            unit: root.service && root.service.vitals && root.service.vitals.gpu ? Model.temp(root.service.vitals.gpu.temp) + " gpu" : "%"
+            unit: root.vitals && root.vitals.gpu ? Model.temp(root.vitals.gpu.temp) + " gpu" : "%"
             engaged: !root.detailApp || root.detailApp.gpu >= 0
             accent: root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
           }
           Dial {
             id: tempDial
             diameter: cluster.dialSize
             label: "temp"
-            value: root.service && root.service.vitals ? root.service.vitals.cpu.temp : 0
+            value: root.vitals ? root.vitals.cpu.temp : 0
             fullScale: 100
-            readout: root.service && root.service.vitals ? Model.temp(root.service.vitals.cpu.temp) : "--"
-            unit: root.service && root.service.vitals && root.service.vitals.fan && root.service.vitals.fan.available && root.service.vitals.fan.rpm > 0 ? root.service.vitals.fan.rpm + " rpm" : "cpu"
-            engaged: root.service && root.service.vitals && root.service.vitals.cpu.temp > 0
-            accent: root.service && root.service.vitals && root.service.vitals.cpu.temp >= 90 ? root.urgent : root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.phase
+            readout: root.vitals ? Model.temp(root.vitals.cpu.temp) : "--"
+            unit: root.vitals && root.vitals.fan && root.vitals.fan.available && root.vitals.fan.rpm > 0 ? root.vitals.fan.rpm + " rpm" : "cpu"
+            engaged: root.vitals && root.vitals.cpu.temp > 0
+            accent: root.vitals && root.vitals.cpu.temp >= 90 ? root.urgent : root.accent
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
           }
         }
       }
@@ -715,7 +813,7 @@ Item {
         anchors.topMargin: Style.space(10)
         anchors.horizontalCenter: parent.horizontalCenter
         spacing: Style.space(36)
-        readonly property var v: root.service ? root.service.vitals : null
+        readonly property var v: root.vitals
 
         // Static model: a fresh array literal here would recreate every
         // delegate on each tick. The text bindings update in place instead.
@@ -768,6 +866,16 @@ Item {
         anchors.right: parent.right
         height: 1
         color: root.hairline
+        // Time to the next reading, as a faint accent filling the rule. It
+        // says why the figures change when they do, and rides the clock that
+        // is already running.
+        Rectangle {
+          anchors.left: parent.left
+          anchors.top: parent.top
+          height: 1
+          width: root.motionOn ? Math.round(parent.width * root.readingProgress) : 0
+          color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.35)
+        }
       }
 
       // ---- Body ----
@@ -788,7 +896,7 @@ Item {
           anchors.bottom: parent.bottom
           anchors.left: parent.left
           width: Math.round(parent.width * 0.40)
-          readonly property var v: root.service ? root.service.vitals : null
+          readonly property var v: root.vitals
           readonly property var h: root.service ? root.service.history : null
           readonly property bool compactStrips: root.detailId !== ""
 
@@ -893,7 +1001,7 @@ Item {
                 Text {
                   anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.bottomMargin: Style.space(4)
                   text: detailPane.app ? detailPane.app.name : ""
-                  color: root.detailApp && root.service && root.detailApp.id === root.service.culprit ? root.pressureColor : root.ink
+                  color: root.detailApp && root.service && root.detailApp.id === root.culprit ? root.pressureColor : root.ink
                   textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.title; font.bold: true
                 }
                 Text {
@@ -1052,12 +1160,12 @@ Item {
               Component {
                 id: appRow
                 AppRow {
-                  app: root.service ? (rowLoader.section === "offenders" ? root.service.offenders.find(function(a) { return a.id === rowLoader.appId }) || null : root.service.appsById[rowLoader.appId] || null) : null
+                  app: root.reading ? (rowLoader.section === "offenders" ? root.reading.offenders.find(function(a) { return a.id === rowLoader.appId }) || null : root.reading.appsById[rowLoader.appId] || null) : null
                   hasCursor: rowLoader.index === root.cursorIndex
-                  isCulprit: root.service && root.service.culprit === rowLoader.appId
+                  isCulprit: root.culprit === rowLoader.appId
                   isDetail: root.detailId === rowLoader.appId
                   expanded: root.expanded[rowLoader.appId] === true
-                  processes: root.service && root.service.processes[rowLoader.appId] ? root.service.processes[rowLoader.appId] : []
+                  processes: root.reading && root.reading.processes[rowLoader.appId] ? root.reading.processes[rowLoader.appId] : []
                   nowMs: root.nowMs
                   ink: root.ink; dim: root.dim; faint: root.faint; hairline: root.hairline
                   selectedBackground: root.selectedBackground; selectedText: root.ink
@@ -1065,6 +1173,7 @@ Item {
                   accent: root.accent
                   fontFamily: root.fontFamily
                   animated: root.animated
+                  phase: root.glidePhase
                   useAverages: rowLoader.section === "offenders"
                   cpuScale: root.scales[rowLoader.section] ? root.scales[rowLoader.section].cpu : 10
                   memScale: root.scales[rowLoader.section] ? root.scales[rowLoader.section].mem : 1024 * 1024 * 1024

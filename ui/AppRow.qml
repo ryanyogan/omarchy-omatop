@@ -29,6 +29,7 @@ Item {
   property color pressureColor: accent
   property string fontFamily: Style.font.family
   property bool animated: true
+  property real phase: 1               // 0..1 from the overlay's reading glide
   property int cornerRadius: Style.space(6)
 
   readonly property int rowHeight: Style.space(36)
@@ -149,6 +150,12 @@ Item {
 
   // A meter: fixed-width track, fill proportional to the panel scale, value
   // beside it in a fixed column so digits never nudge the bar.
+  //
+  // The fill glides from the last reading to the new one as the overlay's
+  // `phase` advances, the same clock the dials use. No Behavior: eighty bars
+  // each running their own animation would pin the window at full refresh,
+  // while riding the shared clock costs nothing beyond the frames it already
+  // produces. The digits snap: a number that spins is not a reading.
   component Meter: Row {
     id: meter
     property real value: 0
@@ -157,6 +164,18 @@ Item {
     property color tint: root.accent
     spacing: Style.space(8)
     readonly property real fraction: scale > 0 ? Math.max(0, Math.min(1, value / scale)) : 0
+    property real shown: 0
+    property real glideFrom: 0
+    property real glideTo: 0
+    readonly property real phase: root.phase
+    function eased(p) { return 0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, Math.min(1, p))) }
+    onFractionChanged: {
+      glideFrom = shown
+      glideTo = fraction
+      if (!root.animated || phase >= 1) shown = fraction
+    }
+    onPhaseChanged: shown = glideFrom + (glideTo - glideFrom) * eased(phase)
+    Component.onCompleted: { shown = fraction; glideFrom = fraction; glideTo = fraction }
     Rectangle {
       id: track
       width: root.meterWidth
@@ -165,12 +184,10 @@ Item {
       color: Qt.rgba(1, 1, 1, 0.08)
       anchors.verticalCenter: parent.verticalCenter
       Rectangle {
-        width: meter.fraction > 0 ? Math.max(height, track.width * meter.fraction) : 0
+        width: meter.shown > 0.001 ? Math.max(height, track.width * meter.shown) : 0
         height: track.height
         radius: height / 2
         color: meter.tint
-        // No easing: eighty bars easing every tick keeps the render loop
-        // awake half of every second.
       }
     }
     Text {
