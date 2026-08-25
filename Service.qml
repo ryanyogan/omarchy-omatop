@@ -26,7 +26,7 @@ Item {
   // Overlay reading cadence. Samples keep arriving at `rate` and feed the
   // timelines; the overlay's dials, readouts and list take a reading every
   // this many seconds and glide to it, so nothing there jumps once a second.
-  readonly property real overlaySeconds: Util.clamp(Number(widgetSetting("overlaySeconds", 5)) || 5, 1, 30)
+  readonly property real overlaySeconds: Util.clamp(Number(widgetSetting("overlaySeconds", 5)) || 5, 1, 10)
   // Overlay motion clock. Every frame the overlay produces costs the same
   // (about 3.5 ms of CPU on a 5K display, whatever moves in it), so this is
   // the whole cost of fluid motion. 30 and 20 divide both 60 and 120 Hz

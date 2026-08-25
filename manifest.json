@@ -33,7 +33,7 @@
       { "key": "showPercent", "type": "boolean", "label": "Show CPU percent next to the glyph", "defaultValue": false },
       { "key": "reducedMotion", "type": "boolean", "label": "Reduce motion", "defaultValue": false },
       { "key": "refreshSeconds", "type": "integer", "label": "Sample every (seconds; feeds the timelines)", "min": 1, "max": 30, "step": 1, "defaultValue": 1 },
-      { "key": "overlaySeconds", "type": "integer", "label": "Overlay readings every (seconds; dials, list and readouts)", "min": 1, "max": 30, "step": 1, "defaultValue": 5 },
+      { "key": "overlaySeconds", "type": "integer", "label": "Overlay readings every (seconds; dials, list and readouts)", "min": 1, "max": 10, "step": 1, "defaultValue": 5 },
       { "key": "motionHz", "type": "integer", "label": "Overlay motion, at most (frames per second; 0 = step once per reading)", "min": 0, "max": 60, "step": 1, "defaultValue": 30 }
     ]
   }
