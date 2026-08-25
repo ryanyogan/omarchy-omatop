@@ -4,11 +4,17 @@
 //! no battery, an Intel laptop with no `amdgpu`, and a VM with no hwmon at all,
 //! so discovery happens once at startup by *name* and each reader degrades to
 //! `available: false` rather than failing the tick.
+//!
+//! GPU is the one exception to "sysfs only": the proprietary NVIDIA driver
+//! puts none of `gpu_busy_percent`, `mem_info_vram_*` or a temp1_input hwmon
+//! on disk, so a discrete GeForce/Quadro card falls back to shelling out to
+//! `nvidia-smi`, throttled to 1 Hz independent of tick rate.
 
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 // ---------------------------------------------------------------------------
 // Serialized shapes
@@ -34,7 +40,7 @@ pub struct MemVital {
     pub swap_used: u64,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuVital {
     pub busy: f64,
@@ -121,6 +127,18 @@ pub struct Sensors {
     pub battery: Option<PathBuf>,
     /// One `scaling_cur_freq` per online cpu.
     pub cpufreq: Vec<PathBuf>,
+    /// `nvidia-smi` on `PATH`. Set only when the amdgpu/nouveau sysfs sensors
+    /// above are absent -- proprietary NVIDIA exposes none of them, so it is
+    /// the only source for a discrete GeForce/Quadro card.
+    pub nvidia_smi: bool,
+}
+
+/// Is `cmd` an executable file somewhere on `PATH`? Avoids spawning a `which`
+/// process just to answer a question `std::env` already knows.
+fn on_path(cmd: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(cmd).is_file()))
+        .unwrap_or(false)
 }
 
 fn hwmon_by_name() -> HashMap<String, PathBuf> {
@@ -229,7 +247,11 @@ impl Sensors {
             .collect();
         cpufreq.sort();
 
-        Sensors { cpu_temp, gpu_temp, fan_rpm, gpu_busy, vram_used, vram_total, battery, cpufreq }
+        // Only worth the fallback when the direct sysfs sensors came up empty:
+        // amdgpu's own numbers are cheaper and more granular than shelling out.
+        let nvidia_smi = gpu_busy.is_none() && gpu_temp.is_none() && on_path("nvidia-smi");
+
+        Sensors { cpu_temp, gpu_temp, fan_rpm, gpu_busy, vram_used, vram_total, battery, cpufreq, nvidia_smi }
     }
 }
 
@@ -283,6 +305,12 @@ pub struct VitalsSampler {
     prev_disk: Option<(u64, u64)>,
     prev_net: Option<(u64, u64)>,
     prev_pswpin: Option<u64>,
+    /// Last successful `nvidia-smi` read and when it was taken. Cached and
+    /// throttled to 1/s (`NVIDIA_POLL_INTERVAL`) independent of tick rate, so
+    /// a fast overlay scrub can't turn a GPU query into a process fork every
+    /// tick.
+    nvidia_cache: Option<GpuVital>,
+    nvidia_polled: Option<Instant>,
 }
 
 impl VitalsSampler {
@@ -310,6 +338,8 @@ impl VitalsSampler {
             prev_disk: None,
             prev_net: None,
             prev_pswpin: None,
+            nvidia_cache: None,
+            nvidia_polled: None,
         }
     }
 
@@ -431,11 +461,40 @@ impl VitalsSampler {
     fn sample_gpu(&mut self, v: &mut Vitals) {
         let busy = read_num::<f64>(&self.sensors.gpu_busy);
         let temp = read_num::<f64>(&self.sensors.gpu_temp).map(|m| round1(m / 1000.0));
-        v.gpu.available = busy.is_some() || temp.is_some();
-        v.gpu.busy = busy.unwrap_or(0.0);
-        v.gpu.temp = temp;
-        v.gpu.vram_used = read_num(&self.sensors.vram_used).unwrap_or(0);
-        v.gpu.vram_total = read_num(&self.sensors.vram_total).unwrap_or(0);
+        if busy.is_some() || temp.is_some() {
+            v.gpu.available = true;
+            v.gpu.busy = busy.unwrap_or(0.0);
+            v.gpu.temp = temp;
+            v.gpu.vram_used = read_num(&self.sensors.vram_used).unwrap_or(0);
+            v.gpu.vram_total = read_num(&self.sensors.vram_total).unwrap_or(0);
+            return;
+        }
+
+        if self.sensors.nvidia_smi {
+            if let Some(g) = self.poll_nvidia() {
+                v.gpu = g;
+                return;
+            }
+        }
+
+        v.gpu.available = false;
+    }
+
+    fn poll_nvidia(&mut self) -> Option<GpuVital> {
+        const NVIDIA_POLL_INTERVAL: f64 = 1.0;
+        let due = match self.nvidia_polled {
+            Some(t) => Instant::now().duration_since(t).as_secs_f64() >= NVIDIA_POLL_INTERVAL,
+            None => true,
+        };
+        if due {
+            self.nvidia_polled = Some(Instant::now());
+            // A transient failure (driver reset, GPU asleep) keeps the last
+            // good reading rather than flashing `available: false` for one tick.
+            if let Some(g) = query_nvidia_smi() {
+                self.nvidia_cache = Some(g);
+            }
+        }
+        self.nvidia_cache.clone()
     }
 
     fn sample_io(&mut self, v: &mut Vitals, interval: f64) {
@@ -497,6 +556,40 @@ impl VitalsSampler {
             v.fan.rpm = rpm.max(0.0) as u32;
         }
     }
+}
+
+/// One tick of GPU vitals from the proprietary NVIDIA driver, which -- unlike
+/// amdgpu -- exposes none of this through sysfs or hwmon. Only the first GPU
+/// is read: this plugin has no per-GPU UI, and a hybrid laptop's dGPU is what
+/// a user means by "GPU" anyway, not the iGPU nvidia-smi never lists.
+fn query_nvidia_smi() -> Option<GpuVital> {
+    let out = std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_nvidia_smi(std::str::from_utf8(&out.stdout).ok()?)
+}
+
+fn parse_nvidia_smi(s: &str) -> Option<GpuVital> {
+    let line = s.lines().next()?;
+    let mut f = line.split(',').map(str::trim);
+    let busy: f64 = f.next()?.parse().ok()?;
+    let temp: f64 = f.next()?.parse().ok()?;
+    let mem_used_mib: f64 = f.next()?.parse().ok()?;
+    let mem_total_mib: f64 = f.next()?.parse().ok()?;
+    Some(GpuVital {
+        busy: round1(busy),
+        temp: Some(round1(temp)),
+        vram_used: (mem_used_mib * 1024.0 * 1024.0) as u64,
+        vram_total: (mem_total_mib * 1024.0 * 1024.0) as u64,
+        available: true,
+    })
 }
 
 fn rate(now: u64, prev: u64, interval: f64) -> u64 {
@@ -727,6 +820,22 @@ wlp192s0: 100  112462    0   29    0     0          0         0 200  60232    0 
         assert_eq!(parse_pswpin("nr_free_pages 1\n"), None);
         // `pswpin` must not be confused with `pswpout` by a prefix match.
         assert_eq!(parse_pswpin("pswpout 90\npswpin 7\n"), Some(7));
+    }
+
+    #[test]
+    fn nvidia_smi_csv_parses() {
+        let g = parse_nvidia_smi("40, 61, 1865, 24564\n").unwrap();
+        assert_eq!(g.busy, 40.0);
+        assert_eq!(g.temp, Some(61.0));
+        assert_eq!(g.vram_used, 1865 * 1024 * 1024);
+        assert_eq!(g.vram_total, 24564 * 1024 * 1024);
+        assert!(g.available);
+    }
+
+    #[test]
+    fn nvidia_smi_garbage_is_none() {
+        assert!(parse_nvidia_smi("").is_none());
+        assert!(parse_nvidia_smi("not a csv line\n").is_none());
     }
 
     #[test]
