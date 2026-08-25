@@ -922,7 +922,8 @@ Item {
           readonly property int stripGap: Style.space(20)
           readonly property int stripCount: 5 + (root.showGpu ? 1 : 0) + (ledger.v && ledger.v.power && ledger.v.power.available ? 1 : 0)
           readonly property real detailSlice: root.detailApp ? Math.min(height * 0.45, Style.space(340)) : 0
-          readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - stripGap * stripCount) / stripCount)
+          readonly property int coreRowHeight: Style.space(7) + Style.space(8)
+          readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - coreRowHeight - stripGap * (stripCount + 1)) / stripCount)
 
           Column {
             id: strips
@@ -938,6 +939,11 @@ Item {
               ink: root.ink; line: root.pressureColor; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade
               Behavior on line { enabled: root.animated; ColorAnimation { duration: 300 } } }
+            // Every core, one block each, under the cpu timeline it belongs to.
+            CoreRow { width: strips.width; height: ledger.coreRowHeight - Style.space(8)
+              cores: root.vitals && root.vitals.cpu ? root.vitals.cpu.cores : []
+              phase: root.glidePhase; animated: root.animated
+              accent: root.accent; urgent: root.urgent; faint: root.faint; track: root.hairline; fontFamily: root.fontFamily }
             Strip { width: strips.width; height: ledger.stripHeight; label: "memory"; maxValue: 100
               samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) + "  " + Model.pct(root.clusterMem) : "--"
               formatter: function(x) { return Model.pct(x) }

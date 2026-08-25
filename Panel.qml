@@ -371,6 +371,18 @@ Panel {
             }
           }
 
+          CoreRow {
+            width: strips.width
+            cores: root.vitals && root.vitals.cpu && root.vitals.cpu.cores ? root.vitals.cpu.cores : []
+            animated: root.animated
+            accent: Color.accent
+            faint: root.faint
+            track: root.hairline
+            fontFamily: root.fontFamily
+            blockHeight: Style.space(6)
+            maxBlockWidth: Style.space(9)
+          }
+
           Strip {
             width: strips.width
             height: root.stripHeight

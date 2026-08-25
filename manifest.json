@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ryanyogan.omatop",
   "name": "Omatop",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "author": "Ryan Yogan",
   "license": "MIT",
   "description": "System monitor that shows you the culprit. Quiet bar glyph, clean dropdown, full-screen diagnostic overlay with vim keys.",
