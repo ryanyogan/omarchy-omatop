@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.6
+
+- Fix: searching, backspacing and searching again no longer leaves old rows drawn over the new ones. A filter, sort or fold change now rebuilds the list from scratch; readings keep the in-place update.
+
 ## 1.1.5
 
 - Fix: focusing an App no longer pushes the ledger over the footer. The machine timelines go compact while an App is focused, the App's pane takes the room that frees and fits its strips and facts to it (facts fold to one line when the pane is short), and the ledger clips as a backstop.

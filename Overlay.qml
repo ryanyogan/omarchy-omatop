@@ -294,12 +294,19 @@ Item {
   // rose", not as jitter. Values still update on every tick.
   property double lastReorderMs: 0
   property bool forceReorder: false
+  // A filter change replaces the whole row set: the keyed diff below moves
+  // rows by index, and a burst of moves, inserts and removes in one pass
+  // left the ListView with delegates drawn at stale positions. Readings
+  // still take the diff, where a row or two changes and delegates should
+  // stay put.
+  property bool rebuildFromScratch: false
 
   function rebuild() {
     if (!service) return
     var now = Date.now()
     var allowMove = forceReorder || (now - lastReorderMs > 2000)
     forceReorder = false
+    if (rebuildFromScratch) { rebuildFromScratch = false; rows.clear() }
     var desired = Model.sections(reading ? reading.apps : [], reading ? reading.offenders : [], service.pins, filter, sortKey, collapsed)
     // Two rows must never share a key: the keyed diff below moves rows by
     // index, and a duplicate makes it move on a stale index, writing one
@@ -345,6 +352,7 @@ Item {
       } else rows.set(j, entry)
     }
     if (allowMove) lastReorderMs = now
+    list.forceLayout()
 
     // Keep the cursor on the same row when the list reorders under it.
     if (cursorKey) {
@@ -389,9 +397,9 @@ Item {
 
   // The ListView lays the new row set out on the next frame; positioning the
   // view inside the same call as the model edits lands it mid-row.
-  onFilterChanged: { forceReorder = true; rebuild(); Qt.callLater(firstApp) }
-  onSortKeyChanged: { forceReorder = true; rebuild() }
-  onCollapsedChanged: { forceReorder = true; rebuild() }
+  onFilterChanged: { rebuildFromScratch = true; forceReorder = true; rebuild(); Qt.callLater(firstApp) }
+  onSortKeyChanged: { rebuildFromScratch = true; forceReorder = true; rebuild() }
+  onCollapsedChanged: { rebuildFromScratch = true; forceReorder = true; rebuild() }
 
   // ---- Cursor --------------------------------------------------------------
   function clampCursor() {
