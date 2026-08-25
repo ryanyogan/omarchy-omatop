@@ -28,6 +28,7 @@ Item {
   property real maxValue: 100       // axis ceiling; 0 = autoscale
   property real floorValue: 0       // autoscale never goes below this ceiling
   property string valueText: ""     // live value, preformatted
+  property real valueOpacity: 1     // parent fades the value in as a reading lands
   property var formatter: null      // function(v) -> string, for scrubbed values
   property int scrub: -1            // -1 live, else sample index from the left
   property color ink: "white"
@@ -123,6 +124,7 @@ Item {
     anchors.right: parent.right
     y: 0
     text: root.shownValue
+    opacity: root.scrub >= 0 ? 1 : root.valueOpacity
     color: root.scrub >= 0 ? root.ink : root.line
     textFormat: Text.PlainText
     font.family: root.fontFamily

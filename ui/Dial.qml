@@ -35,6 +35,7 @@ Item {
   property color onScrimDim: Qt.rgba(1, 1, 1, 0.55)
   property string fontFamily: Style.font.family
   property string sublabel: ""         // small caption under the readout (e.g. "of 15.0G")
+  property real readoutOpacity: 1      // parent fades the digits in as a reading lands
 
   readonly property real dialStart: 135
   readonly property real dialSweep: 270
@@ -71,8 +72,12 @@ Item {
     // No clock running (reduced motion, or a change between ticks): land now.
     if (!animated || phase >= 1) shown = value
   }
+  // The parent rewinds `phase` to 0 just before a reading lands, so a fresh
+  // glide starts from wherever the needle is now, not from the start of the
+  // last one. Until a new value arrives the glide is a hold.
   onPhaseChanged: {
     if (ignition.running) return
+    if (phase <= 0) { glideFrom = shown; glideTo = shown; return }
     shown = glideFrom + (glideTo - glideFrom) * eased(phase)
   }
   Component.onCompleted: { shown = value; glideFrom = value; glideTo = value }
@@ -120,19 +125,20 @@ Item {
   ArcFx { arcColor: Qt.rgba(dial.accent.r, dial.accent.g, dial.accent.b, 0.18); halfWidth: dial.arcWidth * 1.5 }
   ArcFx { id: valueArc }
 
-  // Fallback if the shader did not load: a Shape arc that snaps per sample.
+  // Fallback if the shader did not load: a Shape arc riding the same glide.
+  // It re-tessellates every frame of the glide, which is the cost the shader
+  // avoids, but it never jumps.
   Shape {
     id: fallbackArc
     anchors.fill: parent
     visible: dial.arcVisible && valueArc.status !== ShaderEffect.Compiled
     preferredRendererType: Shape.CurveRenderer
-    readonly property real fraction: dial.fullScale > 0 ? Math.max(0, Math.min(1, dial.value / dial.fullScale)) : 0
     ShapePath {
       strokeWidth: dial.arcWidth
       strokeColor: dial.accent
       fillColor: "transparent"
       capStyle: ShapePath.RoundCap
-      PathAngleArc { centerX: dial.width / 2; centerY: dial.height / 2; radiusX: dial.arcRadius; radiusY: dial.arcRadius; startAngle: dial.dialStart; sweepAngle: dial.dialSweep * fallbackArc.fraction }
+      PathAngleArc { centerX: dial.width / 2; centerY: dial.height / 2; radiusX: dial.arcRadius; radiusY: dial.arcRadius; startAngle: dial.dialStart; sweepAngle: dial.dialSweep * dial.needleFraction }
     }
   }
 
@@ -181,6 +187,7 @@ Item {
     Text {
       anchors.horizontalCenter: parent.horizontalCenter
       text: dial.readout !== "" ? dial.readout : (dial.value < 10 ? dial.value.toFixed(1) : Math.round(dial.value).toString())
+      opacity: dial.readoutOpacity
       color: dial.onScrim
       textFormat: Text.PlainText
       font.family: dial.fontFamily

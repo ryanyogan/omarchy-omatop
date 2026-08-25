@@ -174,7 +174,11 @@ Item {
       glideTo = fraction
       if (!root.animated || phase >= 1) shown = fraction
     }
-    onPhaseChanged: shown = glideFrom + (glideTo - glideFrom) * eased(phase)
+    // Phase rewinds to 0 just before the reading lands: hold from here.
+    onPhaseChanged: {
+      if (phase <= 0) { glideFrom = shown; glideTo = shown; return }
+      shown = glideFrom + (glideTo - glideFrom) * eased(phase)
+    }
     Component.onCompleted: { shown = fraction; glideFrom = fraction; glideTo = fraction }
     Rectangle {
       id: track

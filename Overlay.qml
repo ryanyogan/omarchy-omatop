@@ -95,6 +95,10 @@ Item {
     : cadenceNote + " · motion " + motionHz + " fps"
   onMotionHzChanged: if (motionHz <= 0) settle()
   readonly property bool motionOn: opened && animated && motionHz > 0
+  // Digits do not glide (a number that spins is not a reading), so they fade
+  // in over the first part of the glide instead of cutting. Rides the clock.
+  readonly property real readoutFade: !motionOn ? 1 : 0.45 + 0.55 * eased(Math.min(1, glidePhase * 2.5))
+  function eased(p) { return 0.5 - 0.5 * Math.cos(Math.PI * Math.max(0, Math.min(1, p))) }
 
   // ---------------------------------------------------------------- motion
   // One clock moves everything; it runs two phases. `phase` runs 0 -> 1
@@ -765,7 +769,7 @@ Item {
             readout: Model.pct(root.clusterCpu)
             unit: root.detailApp ? "of machine" : "%"
             accent: root.pressureColor
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase; readoutOpacity: root.readoutFade
           }
           Dial {
             id: memDial
@@ -776,7 +780,7 @@ Item {
             readout: root.detailApp ? Model.bytes(root.detailApp.mem) : (root.vitals ? Model.bytes(root.vitals.mem.used) : "--")
             sublabel: "of " + Model.bytes(root.memTotal)
             accent: root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase; readoutOpacity: root.readoutFade
           }
           Dial {
             id: gpuDial
@@ -789,7 +793,7 @@ Item {
             unit: root.vitals && root.vitals.gpu ? Model.temp(root.vitals.gpu.temp) + " gpu" : "%"
             engaged: !root.detailApp || root.detailApp.gpu >= 0
             accent: root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase; readoutOpacity: root.readoutFade
           }
           Dial {
             id: tempDial
@@ -801,7 +805,7 @@ Item {
             unit: root.vitals && root.vitals.fan && root.vitals.fan.available && root.vitals.fan.rpm > 0 ? root.vitals.fan.rpm + " rpm" : "cpu"
             engaged: root.vitals && root.vitals.cpu.temp > 0
             accent: root.vitals && root.vitals.cpu.temp >= 90 ? root.urgent : root.accent
-            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase
+            onScrim: root.ink; onScrimDim: root.dim; fontFamily: root.fontFamily; animated: root.animated; phase: root.glidePhase; readoutOpacity: root.readoutFade
           }
         }
       }
@@ -848,6 +852,7 @@ Item {
             }
             Text {
               text: parent.value
+              opacity: root.readoutFade
               color: root.ink
               textFormat: Text.PlainText
               font.family: root.fontFamily
@@ -930,38 +935,38 @@ Item {
               samples: ledger.h ? ledger.h.cpu : []; valueText: ledger.v ? Model.pct(ledger.v.cpu.total) : "--"
               formatter: function(x) { return Model.pct(x) }
               ink: root.ink; line: root.pressureColor; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade
               Behavior on line { enabled: root.animated; ColorAnimation { duration: 300 } } }
             Strip { width: strips.width; height: ledger.stripHeight; label: "memory"; maxValue: 100
               samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) + "  " + Model.pct(root.clusterMem) : "--"
               formatter: function(x) { return Model.pct(x) }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; visible: root.showGpu; label: "gpu"; maxValue: 100
               samples: ledger.h ? ledger.h.gpu : []; valueText: ledger.v && ledger.v.gpu ? Model.pct(ledger.v.gpu.busy) : "--"
               formatter: function(x) { return Model.pct(x) }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "temperature"; maxValue: 100; available: ledger.v && ledger.v.cpu.temp > 0
               samples: ledger.h ? ledger.h.temp : []; valueText: ledger.v ? Model.temp(ledger.v.cpu.temp) : "--"
               formatter: function(x) { return Model.temp(x) }
               ink: root.ink; line: ledger.v && ledger.v.cpu.temp >= 90 ? root.urgent : root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "network"; maxValue: 0; floorValue: 1024 * 64
               samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓ " + Model.bytes(ledger.v.net.rx) + "/s   ↑ " + Model.bytes(ledger.v.net.tx) + "/s" : "--"
               formatter: function(x) { return "↓ " + Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "disk"; maxValue: 0; floorValue: 1024 * 1024
               samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "read " + Model.bytes(ledger.v.disk.read) + "/s   write " + Model.bytes(ledger.v.disk.write) + "/s" : "--"
               formatter: function(x) { return "write " + Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; visible: ledger.v && ledger.v.power && ledger.v.power.available; label: "power"; maxValue: 0; floorValue: 30
               samples: ledger.h ? ledger.h.power : []; valueText: ledger.v && ledger.v.power ? Model.watts(ledger.v.power.watts) : "--"
               formatter: function(x) { return Model.watts(x) }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
-              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+              fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
 
             Item {
               width: strips.width
@@ -1014,17 +1019,17 @@ Item {
                 samples: detailPane.d ? detailPane.d.cpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.cpu) : ""
                 formatter: function(x) { return Model.pct(x) }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
               Strip { width: parent.width; height: detailPane.stripHeight; label: "memory"; maxValue: 0; floorValue: 64 * 1024 * 1024
                 samples: detailPane.d ? detailPane.d.mem : []; valueText: detailPane.app ? Model.bytes(detailPane.app.mem) : ""
                 formatter: function(x) { return Model.bytes(x) }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
               Strip { width: parent.width; height: detailPane.stripHeight; visible: root.showGpu && detailPane.app && detailPane.app.gpu >= 0; label: "gpu"; maxValue: 0; floorValue: 10
                 samples: detailPane.d ? detailPane.d.gpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.gpu) : ""
                 formatter: function(x) { return Model.pct(x) }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
-                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding }
+                fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
               Column {
                 width: parent.width
                 spacing: Style.space(2)
