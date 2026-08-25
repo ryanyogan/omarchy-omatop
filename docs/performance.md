@@ -603,7 +603,7 @@ states (search, critical) are 30 to 40% cheaper than before. Its common state
 costs twice what it did, for the motion. `motionHz: 0` restores the old cost
 exactly; reduce motion does the same and more.
 
-## Third pass: two cadences (2026-08-25, commit after 58ad34a)
+## Third pass: two cadences (2026-08-25, v1.1.1)
 
 The overlay now takes a reading every 5 s (`overlaySeconds`) for the dials,
 trip computer, pressure line and list, while the timelines keep taking every

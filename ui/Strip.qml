@@ -30,6 +30,8 @@ Item {
   property string valueText: ""     // live value, preformatted
   property real valueOpacity: 1     // parent fades the value in as a reading lands
   property var formatter: null      // function(v) -> string, for scrubbed values
+  property var rangeFormatter: null // function(v) -> string for the min/max; defaults to formatter
+  property bool showRange: true     // low and high of the window, beside the label
   property int scrub: -1            // -1 live, else sample index from the left
   property color ink: "white"
   property color line: ink
@@ -73,6 +75,27 @@ Item {
     return Math.max(floorValue, m * 1.15, 1)
   }
 
+  // Low and high across the window, in the strip's own unit: a percentage
+  // says how full, these say how much.
+  readonly property real minSample: {
+    var data = samples || []
+    if (data.length < 2) return NaN
+    var m = data[0]
+    for (var i = 1; i < data.length; i++) if (data[i] < m) m = data[i]
+    return m
+  }
+  readonly property real maxSample: {
+    var data = samples || []
+    if (data.length < 2) return NaN
+    var m = data[0]
+    for (var i = 1; i < data.length; i++) if (data[i] > m) m = data[i]
+    return m
+  }
+  function rangeText(v) {
+    var f = rangeFormatter || formatter
+    return f ? f(v) : String(Math.round(v))
+  }
+
   readonly property string shownValue: {
     if (scrub >= 0 && samples && samples.length) {
       var idx = scrub - (capacity - samples.length)
@@ -108,6 +131,7 @@ Item {
   readonly property point lastPoint: points.length ? points[points.length - 1] : Qt.point(-10, -10)
 
   Text {
+    id: labelText
     x: 0
     y: 0
     text: root.label
@@ -118,6 +142,18 @@ Item {
     font.bold: true
     font.letterSpacing: 1.5
     font.capitalization: Font.AllUppercase
+  }
+
+  Row {
+    id: rangeRow
+    anchors.left: labelText.right
+    anchors.leftMargin: Style.space(14)
+    y: 0
+    spacing: Style.space(10)
+    visible: root.showRange && !isNaN(root.minSample) && root.available
+    opacity: root.scrub >= 0 ? 0.5 : 1
+    Text { text: "▾ " + root.rangeText(root.minSample); color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+    Text { text: "▴ " + root.rangeText(root.maxSample); color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
   }
 
   Text {

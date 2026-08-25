@@ -378,6 +378,7 @@ Panel {
             samples: root.memSeries
             valueText: root.memNow >= 0 ? Model.bytes(root.memUsed) : "--"
             formatter: function(x) { return Model.pct(x) }
+            rangeFormatter: function(x) { return root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
             ink: root.ink
             line: root.ink
             dim: root.dim

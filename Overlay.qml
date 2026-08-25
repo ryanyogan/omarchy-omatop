@@ -940,6 +940,7 @@ Item {
             Strip { width: strips.width; height: ledger.stripHeight; label: "memory"; maxValue: 100
               samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) + "  " + Model.pct(root.clusterMem) : "--"
               formatter: function(x) { return Model.pct(x) }
+              rangeFormatter: function(x) { return root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; visible: root.showGpu; label: "gpu"; maxValue: 100
@@ -955,11 +956,13 @@ Item {
             Strip { width: strips.width; height: ledger.stripHeight; label: "network"; maxValue: 0; floorValue: 1024 * 64
               samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓ " + Model.bytes(ledger.v.net.rx) + "/s   ↑ " + Model.bytes(ledger.v.net.tx) + "/s" : "--"
               formatter: function(x) { return "↓ " + Model.bytes(x) + "/s" }
+              rangeFormatter: function(x) { return Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "disk"; maxValue: 0; floorValue: 1024 * 1024
               samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "read " + Model.bytes(ledger.v.disk.read) + "/s   write " + Model.bytes(ledger.v.disk.write) + "/s" : "--"
               formatter: function(x) { return "write " + Model.bytes(x) + "/s" }
+              rangeFormatter: function(x) { return Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; visible: ledger.v && ledger.v.power && ledger.v.power.available; label: "power"; maxValue: 0; floorValue: 30
