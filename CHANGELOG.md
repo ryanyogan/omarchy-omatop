@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.5
+
+- Fix: focusing an App no longer pushes the ledger over the footer. The machine timelines go compact while an App is focused, the App's pane takes the room that frees and fits its strips and facts to it (facts fold to one line when the pane is short), and the ledger clips as a backstop.
+
 ## 1.1.4
 
 - The cluster follows the active theme: background, foreground, accent and urgent all come from it, so a light theme gets a light cluster instead of a black slab. Dial scales and ticks, meter tracks, the search box and the key caps take the theme ink at low alpha too. The scrim keeps a hint of the desktop behind it.

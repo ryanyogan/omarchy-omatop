@@ -921,12 +921,22 @@ Item {
           // Strips share the ledger height equally (the detail strips take a
           // fixed slice when an App is focused), so the graphs use every
           // pixel the screen offers.
+          // Budget, top down, so nothing can add up to more than the ledger.
+          // With an App focused the machine strips drop to a compact height
+          // and tighter gaps, and the detail pane gets whatever that frees,
+          // clamped; the pane fits its own contents to that. clip is the
+          // backstop: the footer is never drawn over.
+          clip: true
           readonly property int axisHeight: Style.space(16)
-          readonly property int stripGap: Style.space(20)
+          readonly property int stripGap: root.detailApp ? Style.space(12) : Style.space(20)
           readonly property int stripCount: 5 + (root.showGpu ? 1 : 0) + (ledger.v && ledger.v.power && ledger.v.power.available ? 1 : 0)
-          readonly property real detailSlice: root.detailApp ? Math.min(height * 0.45, Style.space(340)) : 0
           readonly property int coreRowHeight: Style.space(7) + Style.space(8)
-          readonly property real stripHeight: Math.max(Style.space(34), (height - axisHeight - detailSlice - coreRowHeight - stripGap * (stripCount + 1)) / stripCount)
+          readonly property int compactStrip: Style.space(30)
+          readonly property real fixedHeight: axisHeight + coreRowHeight + stripGap * (stripCount + 1)
+          readonly property real detailSlice: root.detailApp
+            ? Math.max(Style.space(140), Math.min(Style.space(340), height - stripCount * compactStrip - fixedHeight - Style.space(10)))
+            : 0
+          readonly property real stripHeight: Math.max(compactStrip, (height - fixedHeight - detailSlice) / stripCount)
 
           Column {
             id: strips
@@ -1009,9 +1019,11 @@ Item {
             Behavior on opacity { enabled: root.animated; NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
             readonly property var app: root.detailApp
             readonly property var d: root.service && root.service.detail && root.service.detail.id === root.detailId ? root.service.detail : null
-            // Three strips share whatever the slice leaves after the title and the facts.
-            readonly property int factsHeight: Style.space(18) * 4 + Style.space(6)
-            readonly property real stripHeight: Math.max(Style.space(30), (height - Style.space(30) - factsHeight - Style.space(4) * 6) / 3)
+            // The strips share whatever the slice leaves after the title and
+            // the facts. Short pane: the facts fold to one line.
+            readonly property bool roomy: height >= Style.space(230)
+            readonly property int stripsShown: 2 + (root.showGpu && app && app.gpu >= 0 ? 1 : 0)
+            readonly property real stripHeight: Math.max(Style.space(22), (height - 1 - Style.space(30) - facts.implicitHeight - Style.space(4) * (stripsShown + 3)) / stripsShown)
 
             Column {
               anchors.fill: parent
@@ -1050,11 +1062,26 @@ Item {
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
                 fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
               Column {
+                id: facts
                 width: parent.width
                 spacing: Style.space(2)
                 topPadding: Style.space(6)
+                // One line when the pane is short: ports, unit or tag, command.
+                Text {
+                  visible: !detailPane.roomy
+                  width: parent.width
+                  height: visible ? Style.space(18) : 0
+                  elide: Text.ElideMiddle
+                  text: {
+                    var a = detailPane.app
+                    if (!a) return ""
+                    return [Model.ports(a.ports), a.unit || a.tag || "", a.cmd || ""].filter(function(x) { return x && x.length }).join("   ·   ")
+                  }
+                  color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+                  verticalAlignment: Text.AlignVCenter
+                }
                 Repeater {
-                  model: ["ports", "unit", "tag", "cmd"]
+                  model: detailPane.roomy ? ["ports", "unit", "tag", "cmd"] : []
                   delegate: Item {
                     required property var modelData
                     readonly property string value: {
