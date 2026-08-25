@@ -4,7 +4,7 @@ A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. 
 
 ![Omatop overlay: dial cluster, aligned timelines, app list](preview.png)
 
-Thirty seconds of it working for a living: the chip shading amber under real load, the quick view, the overlay tour with vim keys and the port search, and a live theme switch. [Watch the demo](assets/demo.mp4).
+Thirty seconds of the cluster working for a living: the ignition sweep, focusing an App so the dials re-point and its timelines slide into the ledger, the port search, the core row lighting up under real load, and the whole surface recolouring live through Tokyo Night, Catppuccin Latte and Gruvbox. [Watch the demo](assets/demo.mp4).
 
 ## What you get
 
