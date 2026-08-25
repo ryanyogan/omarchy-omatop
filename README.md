@@ -42,18 +42,52 @@ o.bind("SUPER + CTRL + M", "System monitor", "omarchy-shell shell toggle ryanyog
 
 ## Keys
 
+Everything is on the keyboard and the grammar is vim's. Counts work where they make sense (`5j`, `12G`). The mouse works too: hover the ledger to scrub, click a row to focus it, right click to unfold its processes, click the scrim to close.
+
+**Move**
+
 | | |
 |---|---|
-| `j` `k` `gg` `G` `ctrl-d` `ctrl-u` `H` `M` `L` | move (counts work: `5j`, `12G`) |
-| `tab` `shift-tab` `{` `}` | next, previous section |
-| `enter` `l` / `h` `esc` | focus an App in the cluster / unfocus |
+| `j` `k` | down, up |
+| `gg` `G` | first row, last row (`12G` jumps to row 12) |
+| `ctrl-d` `ctrl-u` | half a page down, up |
+| `page down` `page up` | a page down, up |
+| `H` `M` `L` | top, middle, bottom of the view |
+| `tab` `shift-tab` `}` `{` | next, previous section |
+
+**Look**
+
+| | |
+|---|---|
+| `enter` `l` | focus the App: the dials re-point at it and its timelines join the ledger |
+| `h` `esc` | unfocus |
 | `o` `space` | unfold the App's processes |
-| `za` `zM` `zR` | fold section, fold all, unfold all |
-| `,` `.` `0` | scrub the timelines, back to live |
-| `/` then `n` `N` | filter by name, command or `:port` |
-| `sc` `sm` `sg` `sn` | sort by cpu, mem, gpu, name |
-| `p` `ss` `x` `r` | pin, pause/resume, stop, restart |
-| `?` `q` | help, close |
+| `za` | fold or unfold the section under the cursor |
+| `zM` `zR` | fold all, unfold all |
+| `,` `.` | scrub the timelines back, forward (`10,` steps ten samples) |
+| `0` | back to live |
+
+**Find**
+
+| | |
+|---|---|
+| `/` | filter by name, command or `:port`; `enter` keeps the filter, `esc` clears it |
+| `n` `N` | next, previous match |
+| `sc` `sm` `sg` `sn` | sort by cpu, memory, gpu, name |
+
+**Act**
+
+| | |
+|---|---|
+| `p` | pin the App: it shows in the quick view and survives restarts |
+| `ss` | pause or resume (cgroup freezer, the whole App at once) |
+| `x` `delete` | stop, after a confirmation |
+| `r` | restart a Service |
+| `b` | build the sampler, when it is not built yet |
+| `?` | help |
+| `q` `esc` | close (`esc` first clears a filter, focus or scrub if there is one) |
+
+Quick view (the bar dropdown): `o` opens the cluster, `esc` closes.
 
 ## How it works
 
@@ -63,13 +97,31 @@ The vocabulary lives in [CONTEXT.md](CONTEXT.md), the wire contract in [docs/sam
 
 ## Settings
 
-Show CPU percent next to the glyph, reduce motion, the sample interval, the overlay's reading interval, and the overlay's motion rate, all in the bar widget's settings.
+All settings live on the widget's entry in `~/.config/omarchy/shell.json`, under `bar.layout.<section>`. There is no settings dialog in the shell yet (the manifest's schema is what the marketplace and a future panel read), so set them from the terminal:
 
-**Two cadences.** The sampler takes a sample every second (`refreshSeconds`) and that feeds the timelines: the ledger keeps its two minute axis and scrolls a step every second, from the very first sample. The rest of the cluster takes a reading every five seconds (`overlaySeconds`): dials, trip computer, pressure line, the list and its meters all describe one instant, and glide to the next one. Nothing in the overlay jumps once a second any more. A faint accent line under the trip computer fills as the next reading approaches, and the footer says the cadence. Stopping, pausing or restarting something shows its consequence on the next sample rather than the next reading.
+```bash
+omarchy bar set ryanyogan.omatop overlaySeconds 3
+omarchy bar set ryanyogan.omatop motionHz 20
+omarchy bar set ryanyogan.omatop reducedMotion true
+```
 
-**Motion rate.** With the cluster open the needles, arcs, meters and timelines glide instead of stepping. One shared clock drives all of it; every frame the overlay draws costs the same (about 3.5 ms of CPU on a 5K display, whatever moves in it), so the frame rate is the whole price of that motion: 30 fps costs about 10% of one core while the cluster is open, 20 fps about 7%, 12 fps about 5%, stepping once per reading about 3.5%. The rate is picked for the machine: 30 fps with sixteen or more cores, 20 with eight to fifteen, 12 with four to seven, stepping below that, and it drops to stepping whenever the kernel reports heavy or critical Pressure, since that is exactly when there is no CPU to spare. The footer says which is in effect. The setting is a ceiling on all of that; reduce motion turns it off along with every other animation.
+That edits `shell.json` and reloads the shell config; the plugin picks the change up live. Or edit the file by hand and run `omarchy-shell shell reloadConfig`:
 
-## Cost
+```json
+{ "id": "ryanyogan.omatop", "overlaySeconds": 3, "motionHz": 20 }
+```
+
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `refreshSeconds` | `1` | 1 to 30 | How often the sampler takes a sample. Feeds the timelines and the bar glyph. |
+| `overlaySeconds` | `5` | 1 to 10 | How often the cluster takes a reading: dials, trip computer, pressure, the list and its meters. |
+| `motionHz` | `30` | 0 to 60 | Ceiling on the cluster's motion rate. `0` steps once per reading. |
+| `reducedMotion` | `false` | | Turns off every animation. |
+| `showPercent` | `false` | | Shows the CPU percentage next to the bar glyph. |
+
+**Two cadences.** The sampler takes a sample every second (`refreshSeconds`) and that feeds the timelines: the ledger keeps its two minute axis and scrolls a step every second, from the very first sample. The rest of the cluster takes a reading every five seconds (`overlaySeconds`): dials, trip computer, pressure line, the list and its meters all describe one instant, and glide to the next one. Nothing in the overlay jumps once a second. A faint accent line under the trip computer fills as the next reading approaches, and the footer says the cadence. Stopping, pausing or restarting something shows its consequence on the next sample rather than the next reading.
+
+**Motion rate.** With the cluster open the needles, arcs, meters and timelines glide instead of stepping. One shared clock drives all of it; every frame the overlay draws costs the same (about 3.5 ms of CPU on a 5K display, whatever moves in it), so the frame rate is the whole price of that motion: 30 fps costs about 10% of one core while the cluster is open, 20 fps about 7%, 12 fps about 5%, stepping once per reading about 3.5%. The rate is picked for the machine: 30 fps with sixteen or more cores, 20 with eight to fifteen, 12 with four to seven, stepping below that, and it drops to stepping whenever the kernel reports heavy or critical Pressure, since that is exactly when there is no CPU to spare. The footer says which is in effect. `motionHz` is a ceiling on all of that; `reducedMotion` turns it off along with every other animation.
 
 Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`, harness in `docs/measure.py`): with nothing open the plugin adds about half a percent of one core and 10 MiB; the sampler sends a 790 byte tick each refresh while nothing is open and only sends the full App list while a surface is looking at it. The quick view costs under 1% of one core. The cluster costs about 7% of one core at 20 fps and about 10% at the default 30, in every mode: it used to triple to 11% while you typed a search or while the machine was under critical pressure, because two looping animations pinned the window to the display's refresh rate.
 
