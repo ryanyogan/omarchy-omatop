@@ -7,9 +7,9 @@ Item {
 
   property bool opened: false
   property color ink: Color.foreground
-  property color dim: Qt.darker(ink, 1.5)
-  property color faint: Qt.darker(ink, 2.1)
-  property color hairline: Util.alpha(ink, 0.12)
+  property color dim: Util.alpha(ink, 0.76)
+  property color faint: Util.alpha(ink, 0.54)
+  property color hairline: Util.alpha(ink, 0.18)
   property string fontFamily: Style.font.family
   property bool animated: true
 
@@ -50,7 +50,7 @@ Item {
 
   Rectangle {
     anchors.fill: parent
-    color: Qt.rgba(0, 0, 0, 0.55)
+    color: Util.alpha(Color.background, 0.72)
     MouseArea { anchors.fill: parent; onClicked: root.dismissed() }
   }
 
@@ -59,7 +59,7 @@ Item {
     width: Math.min(parent.width - Style.space(80), Style.space(760))
     height: grid.implicitHeight + Style.spacing.panelPadding * 2 + Style.space(40)
     radius: Style.space(10)
-    color: Qt.rgba(0.06, 0.06, 0.06, 1)
+    color: Color.background
     border.width: 1
     border.color: root.hairline
     scale: root.opened ? 1 : 0.98
