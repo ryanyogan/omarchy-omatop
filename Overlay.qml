@@ -910,7 +910,7 @@ Item {
             hoverEnabled: true
             onPositionChanged: function(mouse) {
               if (mouse.y > strips.height) { root.scrub = -1; return }
-              root.scrub = Math.round(Math.max(0, Math.min(1, mouse.x / width)) * 119)
+              root.scrub = Math.round(Math.max(0, Math.min(1, mouse.x / cpuStrip.plotWidth)) * 119)
             }
             onExited: root.scrub = -1
           }
@@ -931,53 +931,57 @@ Item {
             anchors.top: parent.top
             spacing: ledger.stripGap
 
-            Strip { width: strips.width; height: ledger.stripHeight; label: "cpu"; maxValue: 100
+            Strip { id: cpuStrip; width: strips.width; height: ledger.stripHeight; label: "cpu"; maxValue: 100
               samples: ledger.h ? ledger.h.cpu : []; valueText: ledger.v ? Model.pct(ledger.v.cpu.total) : "--"
               formatter: function(x) { return Model.pct(x) }
+              axisFormatter: function(x) { return Math.round(x) + "%" }
               ink: root.ink; line: root.pressureColor; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade
               Behavior on line { enabled: root.animated; ColorAnimation { duration: 300 } } }
             Strip { width: strips.width; height: ledger.stripHeight; label: "memory"; maxValue: 100
               samples: ledger.h ? ledger.h.mem : []; valueText: ledger.v ? Model.bytes(ledger.v.mem.used) + "  " + Model.pct(root.clusterMem) : "--"
               formatter: function(x) { return Model.pct(x) }
-              rangeFormatter: function(x) { return root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
+              axisFormatter: function(x) { return x <= 0 ? "0" : root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; visible: root.showGpu; label: "gpu"; maxValue: 100
               samples: ledger.h ? ledger.h.gpu : []; valueText: ledger.v && ledger.v.gpu ? Model.pct(ledger.v.gpu.busy) : "--"
               formatter: function(x) { return Model.pct(x) }
+              axisFormatter: function(x) { return Math.round(x) + "%" }
               ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "temperature"; maxValue: 100; available: ledger.v && ledger.v.cpu.temp > 0
               samples: ledger.h ? ledger.h.temp : []; valueText: ledger.v ? Model.temp(ledger.v.cpu.temp) : "--"
               formatter: function(x) { return Model.temp(x) }
+              axisFormatter: function(x) { return Math.round(x) + "°" }
               ink: root.ink; line: ledger.v && ledger.v.cpu.temp >= 90 ? root.urgent : root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "network"; maxValue: 0; floorValue: 1024 * 64
-              samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓ " + Model.bytes(ledger.v.net.rx) + "/s   ↑ " + Model.bytes(ledger.v.net.tx) + "/s" : "--"
+              samples: ledger.h ? ledger.h.netRx : []; valueText: ledger.v ? "↓ " + Model.bytes(ledger.v.net.rx) + "/s  ↑ " + Model.bytes(ledger.v.net.tx) + "/s" : "--"
               formatter: function(x) { return "↓ " + Model.bytes(x) + "/s" }
-              rangeFormatter: function(x) { return Model.bytes(x) + "/s" }
+              axisFormatter: function(x) { return x <= 0 ? "0" : Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; label: "disk"; maxValue: 0; floorValue: 1024 * 1024
-              samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "read " + Model.bytes(ledger.v.disk.read) + "/s   write " + Model.bytes(ledger.v.disk.write) + "/s" : "--"
-              formatter: function(x) { return "write " + Model.bytes(x) + "/s" }
-              rangeFormatter: function(x) { return Model.bytes(x) + "/s" }
+              samples: ledger.h ? ledger.h.diskWrite : []; valueText: ledger.v ? "r " + Model.bytes(ledger.v.disk.read) + "/s  w " + Model.bytes(ledger.v.disk.write) + "/s" : "--"
+              formatter: function(x) { return "w " + Model.bytes(x) + "/s" }
+              axisFormatter: function(x) { return x <= 0 ? "0" : Model.bytes(x) + "/s" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
             Strip { width: strips.width; height: ledger.stripHeight; visible: ledger.v && ledger.v.power && ledger.v.power.available; label: "power"; maxValue: 0; floorValue: 30
               samples: ledger.h ? ledger.h.power : []; valueText: ledger.v && ledger.v.power ? Model.watts(ledger.v.power.watts) : "--"
               formatter: function(x) { return Model.watts(x) }
+              axisFormatter: function(x) { return Math.round(x) + "W" }
               ink: root.ink; line: root.dim; dim: root.dim; faint: root.faint; hairline: root.hairline
               fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
 
             Item {
-              width: strips.width
+              width: cpuStrip.plotWidth
               height: ledger.axisHeight
               readonly property string span: Model.span(119 * root.tickMs)
               readonly property string half: Model.span(60 * root.tickMs)
               Text { x: 0; y: Style.space(2); text: "-" + parent.span; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              Text { x: strips.width / 2 - width / 2; y: Style.space(2); text: "-" + parent.half; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { x: parent.width / 2 - width / 2; y: Style.space(2); text: "-" + parent.half; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
               Text { anchors.right: parent.right; y: Style.space(2); text: root.scrub >= 0 ? "-" + Model.span((119 - root.scrub) * root.tickMs) : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
           }
@@ -1021,6 +1025,7 @@ Item {
               Strip { width: parent.width; height: detailPane.stripHeight; label: "cpu"; maxValue: 0; floorValue: 10
                 samples: detailPane.d ? detailPane.d.cpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.cpu) : ""
                 formatter: function(x) { return Model.pct(x) }
+                axisFormatter: function(x) { return Math.round(x) + "%" }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
                 fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
               Strip { width: parent.width; height: detailPane.stripHeight; label: "memory"; maxValue: 0; floorValue: 64 * 1024 * 1024
@@ -1031,6 +1036,7 @@ Item {
               Strip { width: parent.width; height: detailPane.stripHeight; visible: root.showGpu && detailPane.app && detailPane.app.gpu >= 0; label: "gpu"; maxValue: 0; floorValue: 10
                 samples: detailPane.d ? detailPane.d.gpu : []; valueText: detailPane.app ? Model.pct(detailPane.app.gpu) : ""
                 formatter: function(x) { return Model.pct(x) }
+                axisFormatter: function(x) { return Math.round(x) + "%" }
                 ink: root.ink; line: root.accent; dim: root.dim; faint: root.faint; hairline: root.hairline
                 fontFamily: root.fontFamily; scrub: root.scrub; animated: root.animated; phase: root.phase; sliding: root.sliding; valueOpacity: root.readoutFade }
               Column {

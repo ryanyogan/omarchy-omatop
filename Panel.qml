@@ -354,6 +354,7 @@ Panel {
             samples: root.cpuSeries
             valueText: root.cpuNow >= 0 ? Model.pct(root.cpuNow) : "--"
             formatter: function(x) { return Model.pct(x) }
+            axisFormatter: function(x) { return Math.round(x) + "%" }
             ink: root.ink
             // CPU is the row Pressure is mostly about, so it carries the hue.
             line: root.pressureColor
@@ -378,7 +379,7 @@ Panel {
             samples: root.memSeries
             valueText: root.memNow >= 0 ? Model.bytes(root.memUsed) : "--"
             formatter: function(x) { return Model.pct(x) }
-            rangeFormatter: function(x) { return root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
+            axisFormatter: function(x) { return x <= 0 ? "0" : root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
             ink: root.ink
             line: root.ink
             dim: root.dim
@@ -398,6 +399,7 @@ Panel {
             samples: root.gpuSeries
             valueText: root.gpuNow >= 0 ? Model.pct(root.gpuNow) : "--"
             formatter: function(x) { return Model.pct(x) }
+            axisFormatter: function(x) { return Math.round(x) + "%" }
             ink: root.ink
             line: root.ink
             dim: root.dim
@@ -417,6 +419,7 @@ Panel {
             samples: root.tempSeries
             valueText: Model.temp(root.cpuTemp)
             formatter: function(x) { return Model.temp(x) }
+            axisFormatter: function(x) { return Math.round(x) + "°" }
             ink: root.ink
             line: root.cpuTemp >= 90 ? root.urgent : root.dim
             dim: root.dim

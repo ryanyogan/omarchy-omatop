@@ -30,8 +30,8 @@ Item {
   property string valueText: ""     // live value, preformatted
   property real valueOpacity: 1     // parent fades the value in as a reading lands
   property var formatter: null      // function(v) -> string, for scrubbed values
-  property var rangeFormatter: null // function(v) -> string for the min/max; defaults to formatter
-  property bool showRange: true     // low and high of the window, beside the label
+  property var axisFormatter: null  // function(v) -> string for the axis labels; defaults to formatter
+  property bool showAxis: true      // 0, half and full scale drawn on the plot
   property int scrub: -1            // -1 live, else sample index from the left
   property color ink: "white"
   property color line: ink
@@ -75,24 +75,8 @@ Item {
     return Math.max(floorValue, m * 1.15, 1)
   }
 
-  // Low and high across the window, in the strip's own unit: a percentage
-  // says how full, these say how much.
-  readonly property real minSample: {
-    var data = samples || []
-    if (data.length < 2) return NaN
-    var m = data[0]
-    for (var i = 1; i < data.length; i++) if (data[i] < m) m = data[i]
-    return m
-  }
-  readonly property real maxSample: {
-    var data = samples || []
-    if (data.length < 2) return NaN
-    var m = data[0]
-    for (var i = 1; i < data.length; i++) if (data[i] > m) m = data[i]
-    return m
-  }
-  function rangeText(v) {
-    var f = rangeFormatter || formatter
+  function axisText(v) {
+    var f = axisFormatter || formatter
     return f ? f(v) : String(Math.round(v))
   }
 
@@ -144,44 +128,40 @@ Item {
     font.capitalization: Font.AllUppercase
   }
 
-  Row {
-    id: rangeRow
-    anchors.left: labelText.right
-    anchors.leftMargin: Style.space(14)
-    y: 0
-    spacing: Style.space(10)
-    visible: root.showRange && !isNaN(root.minSample) && root.available
-    opacity: root.scrub >= 0 ? 0.5 : 1
-    Text { text: "▾ " + root.rangeText(root.minSample); color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-    Text { text: "▴ " + root.rangeText(root.maxSample); color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-  }
-
+  // The live value rides beside the plot, on its vertical centre, in a fixed
+  // column so the plot width never changes with the digits.
+  readonly property int valueColumnWidth: Style.space(156)
+  readonly property real plotWidth: plot.width
   Text {
     anchors.right: parent.right
-    y: 0
+    anchors.verticalCenter: plot.verticalCenter
+    width: root.valueColumnWidth
+    horizontalAlignment: Text.AlignRight
     text: root.shownValue
     opacity: root.scrub >= 0 ? 1 : root.valueOpacity
     color: root.scrub >= 0 ? root.ink : root.line
     textFormat: Text.PlainText
     font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: Style.font.bodySmall
     font.bold: true
+    elide: Text.ElideLeft
   }
 
   Item {
     id: plot
     x: 0
     y: root.headerHeight
-    width: parent.width
+    width: parent.width - root.valueColumnWidth - Style.space(14)
     height: Math.max(4, parent.height - root.headerHeight)
     clip: true
 
-    // Guides: baseline and a dashed half-way line. The dashes are one
-    // 1 px tall canvas painted on resize, not hundreds of Rectangles.
+    // Axis: a solid baseline at zero, dashed lines at half and full scale,
+    // each labelled at the left in the strip's own unit, so the line reads
+    // as a quantity and not just a shape. The dashes are one 1 px tall
+    // canvas painted on resize, not hundreds of Rectangles.
     Rectangle { x: 0; y: Math.round(root.plotFloor); width: parent.width; height: 1; color: root.hairline }
-    Canvas {
+    component Dashes: Canvas {
       x: 0
-      y: Math.round((root.plotTop + root.plotFloor) / 2)
       width: parent.width
       height: 1
       onWidthChanged: requestPaint()
@@ -192,6 +172,20 @@ Item {
         for (var x = 0; x < width; x += 6) ctx.fillRect(x, 0, 2, 1)
       }
     }
+    Dashes { y: Math.round((root.plotTop + root.plotFloor) / 2) }
+    Dashes { y: Math.round(root.plotTop) }
+    component AxisLabel: Text {
+      x: 0
+      color: root.faint
+      textFormat: Text.PlainText
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      visible: root.showAxis && root.available
+      z: 2
+    }
+    AxisLabel { y: Math.round(root.plotTop) + 2; text: root.axisText(root.scale) }
+    AxisLabel { y: Math.round((root.plotTop + root.plotFloor) / 2) + 2; text: root.axisText(root.scale / 2); visible: root.showAxis && root.available && plot.height >= Style.space(56) }
+    AxisLabel { y: Math.round(root.plotFloor) - implicitHeight - 1; text: root.axisText(0); visible: root.showAxis && root.available && plot.height >= Style.space(40) }
 
     Item {
       id: slider
