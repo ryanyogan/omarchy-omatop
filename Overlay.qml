@@ -588,6 +588,7 @@ Item {
     else if (t === ".") scrub = scrub < 0 ? -1 : Math.min(119, scrub + takeCount(1))
     else if (t === "0") scrub = -1
     else if (t === "b") { if (service.samplerState === "missing" || service.samplerState === "buildFailed") service.buildSampler() }
+    else if (t === "a" && setup.visible) setup.about = !setup.about
     else handled = false
 
     event.accepted = handled
@@ -1230,51 +1231,18 @@ Item {
           }
         }
 
-        // Sampler state card
-        Rectangle {
+        // Sampler state: the same front door as the quick view, wider.
+        SetupCard {
+          id: setup
           anchors.centerIn: parent
-          width: Math.min(parent.width - Style.space(80), Style.space(520))
-          height: stateColumn.implicitHeight + Style.space(36)
-          radius: Style.space(10)
-          color: Qt.rgba(0, 0, 0, 0.6)
-          border.width: 1
-          border.color: root.hairline
+          width: Math.min(parent.width - Style.space(80), Style.space(640))
           visible: root.service && root.service.samplerState !== "running" && root.service.samplerState !== "starting"
-          Column {
-            id: stateColumn
-            anchors.fill: parent
-            anchors.margins: Style.space(18)
-            spacing: Style.space(8)
-            Text {
-              text: {
-                var s = root.service ? root.service.samplerState : ""
-                if (s === "missing") return "The sampler is not built yet"
-                if (s === "building") return "Building the sampler"
-                if (s === "buildFailed") return "The sampler failed to build"
-                if (s === "crashed") return "The sampler stopped, restarting"
-                return ""
-              }
-              color: root.ink; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.title; font.bold: true
-            }
-            Text {
-              width: parent.width
-              wrapMode: Text.Wrap
-              text: {
-                var s = root.service ? root.service.samplerState : ""
-                if (s === "missing") return "Omatop reads the system through a small Rust helper. Press b to build it with cargo. This takes about a minute and only happens once."
-                if (s === "building") return "cargo build --release is running. The cluster lights up when it finishes."
-                if (s === "buildFailed") return "Check that rustc and cargo are installed, then press b to try again."
-                return ""
-              }
-              color: root.dim; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.body
-            }
-            Text {
-              width: parent.width
-              visible: root.service && root.service.buildLog.length > 0
-              text: root.service ? root.service.buildLog.split("\n").filter(function(l) { return l.length }).slice(-6).join("\n") : ""
-              color: root.faint; textFormat: Text.PlainText; font.family: root.fontFamily; font.pixelSize: Style.font.caption; wrapMode: Text.Wrap
-            }
-          }
+          state: root.service ? root.service.samplerState : "starting"
+          logTail: root.service ? root.service.buildLog.split("\n").filter(function(l) { return l.length }).slice(-6).join("\n") : ""
+          ink: root.ink; dim: root.dim; faint: root.faint; hairline: root.hairline
+          accent: root.accent; urgent: root.urgent
+          fontFamily: root.fontFamily; animated: root.animated
+          onBuild: root.service.buildSampler()
         }
       }
 

@@ -32,7 +32,7 @@ Thirty seconds of it working for a living: the chip shading amber under real loa
 omarchy plugin add https://github.com/ryanyogan/omarchy-omatop --enable
 ```
 
-Add the **Omatop** widget to your bar (System category). The first time you open the cluster it will offer to build the sampler, a small Rust helper that reads the system. Press `b`; it takes about a minute and only happens once. Omarchy ships `cargo`, so there is nothing else to install.
+Add the **Omatop** widget to your bar (System category). The first time you open the quick view or the cluster, a card explains that Omatop needs its system monitor, a small Rust helper that reads the machine, and offers **Build now** and **Learn more** (what it is, what it reads, why it exists, what it costs). Click Build now or press `b`; it takes about a minute and only happens once. Omarchy ships `cargo`, so there is nothing else to install. Nothing is built or run at install time.
 
 Optional hotkey, in `~/.config/hypr/bindings.lua`:
 

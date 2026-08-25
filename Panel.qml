@@ -161,24 +161,10 @@ Panel {
     return lines.slice(-count).join("\n")
   }
 
-  readonly property string stateTitle: {
-    if (root.samplerState === "missing") return "Sampler not built yet."
-    if (root.samplerState === "building") return "Building sampler…"
-    if (root.samplerState === "buildFailed") return "Build failed"
-    return "Sampler starting…"
-  }
-
-  readonly property string stateBody: {
-    if (root.samplerState === "missing") return "Press b to build it (cargo, ~1 min)."
-    if (root.samplerState === "building") return root.logTail(3)
-    if (root.samplerState === "buildFailed") return root.logTail(6)
-    return ""
-  }
-
   // ---- Footer hints -------------------------------------------------------
 
   readonly property var hints: root.canBuild
-    ? [["o", "full monitor"], ["b", "build sampler"]]
+    ? [["o", "full monitor"], ["b", "build"], ["a", "about"]]
     : [["o", "full monitor"]]
 
   // ---------------------------------------------------------------- metrics
@@ -232,6 +218,7 @@ Panel {
       onTextKey: function(t) {
         if (t === "o" || t === "O") root.openOverlay()
         else if ((t === "b" || t === "B") && root.canBuild) root.buildSampler()
+        else if ((t === "a" || t === "A") && !root.running) setup.about = !setup.about
       }
 
       Column {
@@ -509,32 +496,18 @@ Panel {
 
         // ------------------------------------------------------- sampler state
 
-        Column {
+        // The front door: what the sampler is and a button to build it.
+        SetupCard {
+          id: setup
           width: parent.width
-          spacing: Style.spacing.sm
           visible: !root.running
-
-          Text {
-            width: parent.width
-            text: root.stateTitle
-            wrapMode: Text.WordWrap
-            color: root.samplerState === "buildFailed" ? root.urgent : root.ink
-            textFormat: Text.PlainText
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-          }
-
-          Text {
-            width: parent.width
-            visible: root.stateBody !== ""
-            text: root.stateBody
-            wrapMode: Text.WrapAnywhere
-            color: root.dim
-            textFormat: Text.PlainText
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            lineHeight: 1.25
-          }
+          compact: true
+          state: root.samplerState
+          logTail: root.samplerState === "building" ? root.logTail(3) : root.samplerState === "buildFailed" ? root.logTail(6) : ""
+          ink: root.ink; dim: root.dim; faint: root.faint; hairline: root.hairline
+          accent: Color.accent; urgent: root.urgent
+          fontFamily: root.fontFamily; animated: root.animated
+          onBuild: root.buildSampler()
         }
 
         // ------------------------------------------------------- pinned
