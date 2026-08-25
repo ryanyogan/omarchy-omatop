@@ -191,16 +191,15 @@ Item {
   readonly property bool showGpu: !!(vitals && vitals.gpu && vitals.gpu.available === true)
 
   // ---- Palette -------------------------------------------------------------
-  // No card: the cluster floats on a deep scrim, like the speed test overlay.
-  // Text and ticks on that scrim use a fixed light palette; the accent and
-  // the Pressure hues still come from the theme.
-  readonly property color ink: "white"
-  readonly property color dim: Qt.rgba(1, 1, 1, 0.55)
-  readonly property color faint: Qt.rgba(1, 1, 1, 0.32)
-  readonly property color hairline: Qt.rgba(1, 1, 1, 0.10)
+  // Keep the cluster in lockstep with the active Omarchy theme.
+  readonly property color background: Color.background
+  readonly property color ink: Color.foreground
+  readonly property color dim: Util.alpha(ink, 0.76)
+  readonly property color faint: Util.alpha(ink, 0.54)
+  readonly property color hairline: Util.alpha(ink, 0.18)
   readonly property color accent: Color.accent
-  readonly property color urgent: "#ff6b6b"
-  readonly property color selectedBackground: Qt.rgba(1, 1, 1, 0.08)
+  readonly property color urgent: Color.urgent
+  readonly property color selectedBackground: Util.alpha(accent, 0.18)
   readonly property color pressureColor: Model.pressureColor(pressure.level, accent, urgent)
   readonly property string fontFamily: Style.font.family
 
@@ -605,11 +604,11 @@ Item {
     WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     anchors { top: true; bottom: true; left: true; right: true }
 
-    // Deep scrim carries the contrast on any wallpaper.
+    // Theme background carries the contrast on any wallpaper.
     Rectangle {
       id: scrim
       anchors.fill: parent
-      color: Qt.rgba(0, 0, 0, 0.94)
+      color: root.background
       opacity: root.opened ? 1 : 0
       Behavior on opacity { enabled: root.animated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
       MouseArea { anchors.fill: parent; enabled: root.opened; onClicked: root.close() }
@@ -1352,9 +1351,9 @@ Item {
         opened: root.mode === "confirm"
         message: root.confirmApp ? ("Stop " + root.confirmApp.name + "? " + root.confirmApp.nproc + (root.confirmApp.nproc === 1 ? " process" : " processes") + " will be terminated.") : ""
         confirmText: "Stop"
-        background: Qt.rgba(0.06, 0.06, 0.06, 1)
+        background: root.background
         foreground: root.ink
-        scrim: Qt.rgba(0, 0, 0, 0.5)
+        scrim: Util.alpha(root.background, 0.72)
         selectedBackground: root.selectedBackground
         selectedText: root.ink
         fontFamily: root.fontFamily
