@@ -114,7 +114,7 @@ Actions reply on the next tick via `events: [{ "type": "action", "id", "action",
 - **Zombies** (state Z) are skipped entirely and never form Apps.
 - **Accounting**: for units prefer the cgroup files (`cpu.stat` usage_usec, `memory.current`) over per-pid sums;
   per-pid accounting is used for Jobs and for the terminal remainder.
-- **History persistence**: the ring is written to `$HOME/.local/state/omarchy/omatop-history.json` every 10 s and
+- **History persistence**: the ring is written to `$HOME/.local/state/omatop/history.json` every 10 s and
   reloaded at startup when less than 5 minutes old, so a shell plugin reload does not erase the last two minutes.
 - Never exit on a read error; skip that pid. No `panic = "abort"`: a panic in one tick must not take the sampler down. Processes may vanish mid-read.
 - Default tick rate 1 Hz; idle CPU cost target < 1 % of one core at 500 pids.

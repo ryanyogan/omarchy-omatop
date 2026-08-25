@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.7
+
+- State moves to `~/.local/state/omatop/` (history ring and pins). Existing files are moved over on first run. The old location was inside Omarchy's own state directory, and every atomic write there tripped the shell bar's wallpaper watcher, which re-sampled the background image with ImageMagick every 10 s. That alone cost about 40% of a core on a 5K display. Omatop was the trigger on this machine; the watcher fix itself is proposed upstream.
+
 ## 1.1.6
 
 - Fix: searching, backspacing and searching again no longer leaves old rows drawn over the new ones. A filter, sort or fold change now rebuilds the list from scratch; readings keep the in-place update.

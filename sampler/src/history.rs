@@ -117,10 +117,35 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// `$HOME/.local/state/omarchy/omatop-history.json`.
+/// `$HOME/.local/state/omatop/history.json`.
+///
+/// Omatop keeps its own state directory. It used to write next to Omarchy's
+/// own state, but the shell's bar watches `~/.local/state/omarchy/current`
+/// through a directory watch that fires for every entry created, renamed or
+/// removed in `~/.local/state/omarchy`, and each firing re-sampled the
+/// wallpaper. Our 10 s atomic rename was that trigger.
 pub fn state_path() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
+    Some(PathBuf::from(home).join(".local/state/omatop/history.json"))
+}
+
+/// Where versions before 1.1.7 kept the ring.
+fn legacy_state_path() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".local/state/omarchy/omatop-history.json"))
+}
+
+/// Move a ring left by an older version into the new directory, once.
+fn migrate_legacy_state(path: &PathBuf) {
+    let Some(legacy) = legacy_state_path() else { return };
+    if path.exists() || !legacy.exists() {
+        return;
+    }
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    let _ = fs::rename(&legacy, path);
+    let _ = fs::remove_file(legacy.with_extension("json.tmp"));
 }
 
 impl SystemHistory {
@@ -138,6 +163,7 @@ impl SystemHistory {
     /// discarded rather than shown as if it were now.
     pub fn load(&mut self) {
         let Some(path) = state_path() else { return };
+        migrate_legacy_state(&path);
         let Ok(text) = fs::read_to_string(&path) else { return };
         let Ok(s) = serde_json::from_str::<Saved>(&text) else { return };
         let age = now_secs().saturating_sub(s.t);

@@ -38,8 +38,13 @@ Item {
   readonly property string pluginDir:
     decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "").replace(/\/$/, ""))
   readonly property string samplerPath: pluginDir + "/sampler/target/release/omatop-sampler"
-  readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/omarchy"
+  // Omatop keeps its own state directory. Anything written atomically into
+  // ~/.local/state/omarchy trips the bar's wallpaper watcher, which re-samples
+  // the background image, so nothing of ours lands there.
+  readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/omatop"
   readonly property string stateFilePath: stateDir + "/omatop.json"
+  // Where versions before 1.1.7 kept the pins; moved on first load.
+  readonly property string legacyStateFilePath: Quickshell.env("HOME") + "/.local/state/omarchy/omatop.json"
 
   // ---- Sampler lifecycle -------------------------------------------------
 
@@ -367,10 +372,12 @@ Item {
 
   function loadState() {
     stateReader.command = ["bash", "-c",
-      'f="$0"; [ -e "$f" ] || exit 0; [ -L "$f" ] && exit 1; exec 3<>"$f" || exit 1; '
+      'f="$0"; legacy="$1"; '
+      + 'if [ ! -e "$f" ] && [ -f "$legacy" ] && [ ! -L "$legacy" ]; then mkdir -p "$(dirname "$f")" && mv -n "$legacy" "$f"; fi; '
+      + '[ -e "$f" ] || exit 0; [ -L "$f" ] && exit 1; exec 3<>"$f" || exit 1; '
       + '[ "$(stat -Lc %F /proc/self/fd/3)" = "regular file" ] || exit 1; '
       + 'head -c ' + root.maxStateBytes + ' <&3',
-      root.stateFilePath]
+      root.stateFilePath, root.legacyStateFilePath]
     stateReader.running = true
   }
 
