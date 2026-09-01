@@ -128,30 +128,33 @@ Item {
     font.capitalization: Font.AllUppercase
   }
 
-  // The scale, beside the name: what the baseline and the top line mean.
-  Text {
-    anchors.left: labelText.right
-    anchors.leftMargin: Style.space(10)
-    anchors.baseline: labelText.baseline
-    visible: root.showAxis && root.available
-    text: root.axisText(0) + " – " + root.axisText(root.scale)
-    color: root.faint
-    textFormat: Text.PlainText
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
-  }
-
-  // The live value, right-aligned above the plot.
-  Text {
+  // The live value with its scale on the same row, right-aligned above the
+  // plot: the reading in the series colour, then the ceiling the plot is on
+  // in faint, so "49%  7.3G / 14.9G" reads in one glance what the top line
+  // means. The baseline is always zero.
+  Row {
     anchors.right: parent.right
     y: 0
-    text: root.shownValue
-    opacity: root.scrub >= 0 ? 1 : root.valueOpacity
-    color: root.scrub >= 0 ? root.ink : root.line
-    textFormat: Text.PlainText
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
-    font.bold: true
+    spacing: Style.space(5)
+
+    Text {
+      text: root.shownValue
+      opacity: root.scrub >= 0 ? 1 : root.valueOpacity
+      color: root.scrub >= 0 ? root.ink : root.line
+      textFormat: Text.PlainText
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.bold: true
+    }
+
+    Text {
+      visible: root.showAxis && root.available
+      text: "/ " + root.axisText(root.scale)
+      color: root.faint
+      textFormat: Text.PlainText
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
   }
   readonly property real plotWidth: plot.width
   readonly property real plotX: plot.x

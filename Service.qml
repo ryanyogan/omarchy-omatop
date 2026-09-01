@@ -53,8 +53,7 @@ Item {
   property string buildLog: ""
   property int restartAttempts: 0
 
-  // Latest tick, verbatim from the protocol, plus derived views.
-  property var tick: null
+  // Latest tick, decomposed into the views the surfaces read.
   property var apps: []
   property var appsById: ({})
   property var vitals: null
@@ -63,6 +62,9 @@ Item {
   property string culprit: ""
   property var detail: null
   property var processes: ({})
+  // Shared empty object so a tick with no processes doesn't hand every
+  // reader a brand-new identity to re-evaluate against.
+  readonly property var _noProcesses: ({})
   property int tickCount: 0
   property double lastTickMs: 0
 
@@ -98,6 +100,10 @@ Item {
   readonly property int offenderCpuCount: 10
   readonly property int offenderMemCount: 6
   function refreshOffenders(incoming, lean) {
+    // The only reader is the overlay, which is destroyed while closed, and
+    // surfaceOpened() repicks from scratch anyway. The averages stay warm
+    // through updateAverages regardless; skip the sort-and-allocate.
+    if (root.openSurfaces === 0) return
     var now = Date.now()
     var pool = lean ? incoming : root.apps
     if (root.offenderIds.length === 0 || now - root.lastPick > 30000) {
@@ -236,12 +242,14 @@ Item {
 
   function surfaceOpened() { root.openSurfaces = root.openSurfaces + 1; root.repickOffenders() }
   function surfaceClosed() { root.openSurfaces = Math.max(0, root.openSurfaces - 1) }
-  // Nothing open: lean ticks (vitals + pressure only, ~700 bytes). Something
-  // opens: full ticks, and one right now so the surface never shows stale data.
+  // Nothing open: lean ticks (vitals, pressure and slim offender rows for
+  // the averages, ~3 KB) with the fd scan off — ports and per-App GPU only
+  // render in the overlay. Something opens: fds back on first, then full
+  // ticks, and one right now so the surface never shows stale data.
   onOpenSurfacesChanged: pushLean()
   function pushLean() {
-    if (root.openSurfaces > 0) send("lean off\nnow")
-    else send("lean on")
+    if (root.openSurfaces > 0) send("fds on\nlean off\nnow")
+    else send("fds off\nlean on")
   }
 
 
@@ -254,14 +262,20 @@ Item {
     if (!data || data.v !== 1) return
 
     root.samplerState = "running"
-    root.tick = data
     root.vitals = data.vitals || null
     // Lean ticks omit history and apps; keep what we had rather than blanking.
     if (data.history) root.history = data.history
-    root.pressure = data.pressure || { level: "calm", score: 0, reason: "" }
+    // Pressure keeps its object identity while nothing changed, so a calm
+    // tick doesn't wake every pressure binding (and their colour Behaviors)
+    // in the bar and the closed dropdown once a second.
+    var p = data.pressure || { level: "calm", score: 0, reason: "" }
+    if (!root.pressure || root.pressure.level !== p.level
+        || root.pressure.score !== p.score || root.pressure.reason !== p.reason)
+      root.pressure = p
     root.culprit = data.culprit || ""
     root.detail = data.detail || null
-    root.processes = data.processes || ({})
+    var procs = data.processes || root._noProcesses
+    if (root.processes !== procs) root.processes = procs
 
     // Lean ticks carry only the offenders (top CPU and memory). Keep the last
     // full App list for the surfaces, but feed every tick into the averages.

@@ -22,15 +22,16 @@ function isPinned(pins, app) {
 
 // ---- Formatting -------------------------------------------------------------
 
-// Always "ddd" + unit (3 significant figures), so a value never changes width
-// as it moves: 0.26K, 5.18K, 12.0M, 145M, 1.54G. Monospace keeps it aligned.
+// Always five characters (3 significant figures plus the unit, space-padded
+// in the hundreds), so a value never changes width as it moves: 0.26K,
+// 5.18K, 12.0M, " 145M", 1.54G. Monospace keeps it aligned either way.
 function bytes(n) {
   n = Number(n) || 0
   var units = ["K", "M", "G", "T"]
   var u = 0
   n /= 1024
   while (n >= 1000 && u < units.length - 1) { n /= 1024; u++ }
-  var s = n >= 100 ? Math.round(n).toString() : n >= 10 ? n.toFixed(1) : n.toFixed(2)
+  var s = n >= 100 ? " " + Math.round(n) : n >= 10 ? n.toFixed(1) : n.toFixed(2)
   return s + units[u]
 }
 
@@ -42,7 +43,7 @@ function rate(n) {
 function pct(n, digits) {
   n = Number(n)
   if (!isFinite(n) || n < 0) return "--"
-  return n.toFixed(1) + "%"
+  return n.toFixed(digits === undefined ? 1 : digits) + "%"
 }
 
 // Human span for an axis: 120s → "2m", 600s → "10m", 45s → "45s".

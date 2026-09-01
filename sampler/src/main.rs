@@ -85,13 +85,32 @@ struct Tick<'a> {
     culprit: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     history: Option<HistoryOut>,
-    apps: &'a [App],
+    apps: AppsOut<'a>,
     /// True when `apps` is only the offenders, not the whole machine.
     lean: bool,
     processes: HashMap<&'a str, &'a [ProcRow]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<DetailOut>,
     events: Vec<EventOut>,
+}
+
+/// A lean tick's App row: only what the shell's rolling averages read while
+/// nothing is open. A full App serializes to ~500 bytes; this is ~90, which
+/// is the difference between a 10 KB and a 3 KB line parsed every second.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LeanApp<'a> {
+    id: &'a str,
+    bucket: &'static str,
+    cpu: f64,
+    mem: u64,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum AppsOut<'a> {
+    Full(&'a [App]),
+    Lean(&'a [LeanApp<'a>]),
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +451,7 @@ impl Sampler {
         // Lean ticks still carry the offenders: the top Apps by CPU and by
         // memory. That keeps the shell's rolling averages warm while nothing
         // is open, so the offenders panel is right the moment it appears.
-        let lean_apps: Vec<App> = if self.lean {
+        let lean_apps: Vec<LeanApp> = if self.lean {
             let mut by_cpu: Vec<&App> = apps.iter().filter(|a| a.bucket != "kernel").collect();
             by_cpu.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
             let mut by_mem: Vec<&App> = apps.iter().filter(|a| a.bucket != "kernel").collect();
@@ -443,7 +462,10 @@ impl Sampler {
                     picked.push(a);
                 }
             }
-            picked.into_iter().map(|a| a.clone()).collect()
+            picked
+                .into_iter()
+                .map(|a| LeanApp { id: &a.id, bucket: a.bucket, cpu: a.cpu, mem: a.mem })
+                .collect()
         } else {
             Vec::new()
         };
@@ -486,10 +508,10 @@ impl Sampler {
                 disk_write: self.sys_hist.disk_write.rounded(0),
                 power: self.sys_hist.power.rounded(1),
             }) },
-            // Lean ticks (nothing open in the shell) carry vitals, pressure and
-            // the culprit only: the bar glyph needs nothing else, and the
-            // shell should not parse 30 KB of Apps nobody is looking at.
-            apps: if self.lean { &lean_apps } else { &apps },
+            // Lean ticks (nothing open in the shell) carry vitals, pressure,
+            // the culprit and slim offender rows for the averages: the shell
+            // should not parse 30 KB of Apps nobody is looking at.
+            apps: if self.lean { AppsOut::Lean(&lean_apps) } else { AppsOut::Full(&apps) },
             lean: self.lean,
             processes,
             detail,

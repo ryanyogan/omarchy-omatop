@@ -17,7 +17,7 @@ Vocabulary is defined in `CONTEXT.md`. Field names below use it.
 | `resume <appId>` | Units: `systemctl [--user] thaw <unit>`. Jobs: SIGCONT. |
 | `restart <appId>` | `.service` units (user or system): `systemctl [--user] restart <unit>`. A `.scope` has no `ExecStart` and cannot be restarted. |
 | `fds <on|off>` | enable the per-pid fd scan (Ports + GPU per App). Default on. |
-| `lean <on|off>` | lean ticks omit `apps` and `history` (vitals, pressure, culprit only). The shell turns this on while nothing is open. |
+| `lean <on|off>` | lean ticks omit `history` and slim `apps` down to offender rows carrying only `id`, `bucket`, `cpu`, `mem` (what the shell's rolling averages read). The shell turns this on, and `fds off` with it, while nothing is open. |
 | `now` | tick immediately (the shell sends it when a surface opens, so it never waits out the period). |
 
 Actions reply on the next tick via `events: [{ "type": "action", "id", "action", "ok": bool, "error"?: string }]`.

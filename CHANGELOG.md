@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.8
+
+- The dropdown gets the same header as the other plugins: the chip mark, the name, a small-caps status line (culprit under load, uptime when calm, sampler state before that), and the Pressure chip on the trailing edge, over a separator. The mark is now one shared component, so the bar and the dropdown can never drift apart.
+- Every timeline states its scale on the value row: the reading, then the ceiling the plot is on, so memory reads `49%  7.3G / 14.9G` and the autoscaling strips (network, disk, power) show the ceiling they are currently on. The baseline is always zero.
+- Quieter while closed. Lean ticks slim their App rows to the four fields the rolling averages actually read, taking the line the shell parses every second from ~10 KB to ~3 KB; the fd scan (ports, per-App GPU) pauses while nothing renders it; offender sorting skips while no surface reads it; an unchanged Pressure keeps its object identity so a calm tick wakes no bindings in the bar or the closed dropdown; and the bar tooltip is only built while hovered.
+- Fix: percent formatting ignored its digits argument, so the bar's optional CPU cell rendered `38.2%` into a slot measured for `38%` and clipped the leading digit.
+- Fix: byte figures in the hundreds pad to a stable width, so the net and power line no longer shifts sideways when a rate crosses 100M.
+- A teardown without a close (shell reload mid-overlay) can no longer leave the sampler shipping full ticks forever.
+- New preview: the quick view, the cluster and the bar, shot on the Sherbet theme.
+
 ## 1.1.7
 
 - State moves to `~/.local/state/omatop/` (history ring and pins). Existing files are moved over on first run. The old location was inside Omarchy's own state directory, and every atomic write there tripped the shell bar's wallpaper watcher, which re-sampled the background image with ImageMagick every 10 s. That alone cost about 40% of a core on a 5K display. Omatop was the trigger on this machine; the watcher fix itself is proposed upstream.

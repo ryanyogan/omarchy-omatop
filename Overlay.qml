@@ -22,6 +22,17 @@ Item {
 
   property bool opened: false
 
+  // A shell reload or plugin disable can tear this surface down without a
+  // close(). Without the answer to surfaceOpened(), the refcount drifts and
+  // the sampler ships full 30 KB ticks every second forever with nothing on
+  // screen; this is the backstop that keeps the books straight.
+  Component.onDestruction: {
+    if (opened && service) {
+      service.surfaceClosed()
+      service.requestDetail("")
+    }
+  }
+
   // ---- Interaction state ---------------------------------------------------
   property string mode: "normal"        // normal | search | confirm | help
   property string filter: ""

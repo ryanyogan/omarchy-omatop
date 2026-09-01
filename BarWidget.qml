@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+import "ui"
 
 // Omatop's bar presence: a chip mark whose colour walks the utilisation ramp
 // tinted by Pressure. It is meant to be ignorable: the colour is the signal
@@ -51,6 +52,9 @@ BarWidget {
 
   // Hover text: the Pressure verdict and the two numbers people actually
   // want at a glance. No product name; the glyph already says which widget.
+  // Only evaluated while hovered (see tooltipText below): the shell reads
+  // the tooltip once on hover-enter, so a string built every tick while
+  // nobody is looking is pure garbage in the one component always loaded.
   readonly property string tooltip: {
     if (root.samplerState === "missing") return "Sampler not built, open to build"
     if (root.samplerState === "building") return "Building the sampler…"
@@ -136,7 +140,9 @@ BarWidget {
     dimmed: !root.samplerReady
     fixedWidth: root.vertical ? -1
       : Math.round(content.implicitWidth + Style.spaceReal(8.5) * 2)
-    tooltipText: root.tooltip
+    // containsMouse flips before entered() fires, so the binding is current
+    // when the shell reads it on hover-enter.
+    tooltipText: button.tooltipHovered ? root.tooltip : ""
 
     onPressed: function(b) {
       if (b === Qt.MiddleButton) return
@@ -157,75 +163,20 @@ BarWidget {
       anchors.centerIn: parent
       spacing: 0
 
-      // The mark. Three fixed bars tinted by
-      // Pressure — a shape rather than a font icon, so it stays honest at
-      // any bar size and never depends on a Nerd Font being present.
-      // The mark: a chip. A rounded die with legs on all four sides and a
-      // core inside. It never moves; only its colour walks the utilisation
-      // ramp (calm, amber, orange, red).
-      Canvas {
+      // The mark: a chip, drawn by the shared ChipIcon so the bar and the
+      // dropdown's hero stay the same shape. It never moves; only its colour
+      // walks the utilisation ramp (calm, amber, orange, red).
+      ChipIcon {
         id: glyph
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.bar.iconCanvas
-        height: Style.bar.iconCanvas
-        renderStrategy: Canvas.Cooperative
+        iconSize: Style.bar.iconCanvas
 
-        property color tint: root.samplerReady ? root.pressureColor : root.ink
+        tint: root.samplerReady ? root.pressureColor : root.ink
         opacity: root.samplerReady ? 1 : 0.6
 
         Behavior on tint {
           enabled: !root.reducedMotion
           ColorAnimation { duration: 300 }
-        }
-        onTintChanged: requestPaint()
-
-        onPaint: {
-          var ctx = glyph.getContext("2d")
-          if (!ctx) return
-          ctx.reset()
-
-          var w = glyph.width
-          var h = glyph.height
-          if (w <= 0 || h <= 0) return
-
-          var leg = Math.max(2, Math.round(w * 0.14))
-          var lw = Math.max(1, Math.round(w * 0.09))
-          var bodyR = Math.max(1.5, w * 0.12)
-          var x0 = leg, y0 = leg
-          var bw = w - leg * 2, bh = h - leg * 2
-
-          ctx.strokeStyle = glyph.tint
-          ctx.fillStyle = glyph.tint
-          ctx.lineWidth = lw
-          ctx.lineCap = "round"
-
-          // Legs: three per side, centred on the body edges.
-          var positions = [0.28, 0.5, 0.72]
-          for (var i = 0; i < positions.length; i++) {
-            var t = positions[i]
-            var px = Math.round(x0 + bw * t)
-            var py = Math.round(y0 + bh * t)
-            ctx.beginPath()
-            ctx.moveTo(px, 0); ctx.lineTo(px, y0 - 1)
-            ctx.moveTo(px, h); ctx.lineTo(px, h - y0 + 1)
-            ctx.moveTo(0, py); ctx.lineTo(x0 - 1, py)
-            ctx.moveTo(w, py); ctx.lineTo(w - x0 + 1, py)
-            ctx.stroke()
-          }
-
-          // Body outline.
-          ctx.beginPath()
-          ctx.moveTo(x0 + bodyR, y0)
-          ctx.arcTo(x0 + bw, y0, x0 + bw, y0 + bh, bodyR)
-          ctx.arcTo(x0 + bw, y0 + bh, x0, y0 + bh, bodyR)
-          ctx.arcTo(x0, y0 + bh, x0, y0, bodyR)
-          ctx.arcTo(x0, y0, x0 + bw, y0, bodyR)
-          ctx.closePath()
-          ctx.stroke()
-
-          // Core.
-          var cw = Math.max(2, Math.round(bw * 0.34))
-          ctx.fillRect(Math.round(w / 2 - cw / 2), Math.round(h / 2 - cw / 2), cw, cw)
         }
       }
 

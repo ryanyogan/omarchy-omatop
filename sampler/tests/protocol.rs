@@ -262,3 +262,32 @@ fn a_tick_line_stays_small_enough_to_ship_every_second() {
     );
     assert!(!line.contains('\n'), "a tick must be exactly one line");
 }
+
+#[test]
+fn lean_ticks_carry_slim_offender_rows() {
+    let mut s = Sampler::start();
+    s.tick();
+    s.send("lean on");
+    s.send("now");
+
+    let mut v = s.tick();
+    for _ in 0..5 {
+        if v["lean"] == Value::Bool(true) {
+            break;
+        }
+        v = s.tick();
+    }
+    assert_eq!(v["lean"], Value::Bool(true), "lean never engaged");
+
+    let apps = v["apps"].as_array().expect("lean apps is an array");
+    assert!(!apps.is_empty(), "lean ticks still carry offender rows");
+    for a in apps {
+        let mut keys: Vec<&str> = a.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["bucket", "cpu", "id", "mem"],
+            "lean rows carry only what the shell's averages read"
+        );
+    }
+}

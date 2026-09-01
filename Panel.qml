@@ -34,6 +34,12 @@ Panel {
   // all of them.
   property bool surfaceCounted: false
 
+  // Backstop for teardown without a close (shell reload, plugin disable):
+  // answer the open we counted or the sampler's refcount drifts for good.
+  Component.onDestruction: {
+    if (surfaceCounted && service) service.surfaceClosed()
+  }
+
   onOpenedChanged: {
     if (root.opened) {
       if (!root.surfaceCounted && root.service) {
@@ -110,19 +116,28 @@ Panel {
   readonly property real cpuTemp: vitals && vitals.cpu ? Number(vitals.cpu.temp) || 0 : 0
   readonly property real memTotal: vitals && vitals.mem ? Number(vitals.mem.total) || 0 : 0
   readonly property real memUsed: vitals && vitals.mem ? Number(vitals.mem.used) || 0 : 0
-  // The culprit while the machine is under Pressure (the sampler names none
-  // when calm, so a quiet machine never accuses whatever is idling on top),
-  // otherwise uptime. Either way, a fact in the slot a product name used to waste.
+  // The small-caps status line under the name: the sampler's state while it
+  // isn't running, then the culprit while the machine is under Pressure (the
+  // sampler names none when calm, so a quiet machine never accuses whatever
+  // is idling on top), otherwise uptime. The Pressure reason rides along in
+  // the sampler's own words when there is one.
   readonly property string headline: {
-    if (!running || !vitals) return "System"
+    if (samplerState === "missing") return "Sampler not built"
+    if (samplerState === "building") return "Building the sampler…"
+    if (samplerState === "buildFailed") return "Build failed"
+    if (samplerState === "crashed") return "Sampler restarting"
+    if (!running || !vitals) return "Starting…"
+    var bits = []
     var id = root.culprit
     var app = id !== "" && root.service && root.service.appsById ? root.service.appsById[id] : null
     if (app) {
       var figure = Number(app.cpu) >= 1 ? Model.pct(app.cpu, 0) : Model.bytes(app.mem)
-      return String(app.name || "") + "  " + figure
+      bits.push(String(app.name || "") + " " + figure)
+    } else if (Number(vitals.uptime) > 0) {
+      bits.push("up " + Model.age(0, Number(vitals.uptime) * 1000))
     }
-    if (Number(vitals.uptime) > 0) return "up " + Model.age(0, Number(vitals.uptime) * 1000)
-    return "System"
+    if (root.pressureLevel !== "calm" && root.pressureReason !== "") bits.push(root.pressureReason)
+    return bits.length ? bits.join("  ·  ") : "System"
   }
   readonly property real memNow: memTotal > 0 ? memUsed / memTotal * 100 : -1
   readonly property real gpuNow: vitals && vitals.gpu ? Number(vitals.gpu.busy) || 0 : -1
@@ -228,99 +243,104 @@ Panel {
 
         // ------------------------------------------------------- header
 
-        Column {
+        // Same shape as the HEY plugin's header (and Hydrate's, and Omaday's):
+        // mark, name, a small-caps status line, and the Pressure chip pinned
+        // to the trailing edge.
+        Item {
+          id: heroItem
           width: parent.width
-          spacing: Style.spacing.xs
+          height: hero.implicitHeight
 
-          Item {
+          // Inside the Component blocks below, PanelHero's internal `id: root`
+          // shadows the panel's; all panel state goes through this handle.
+          readonly property var omatop: root
+
+          PanelHero {
+            id: hero
             width: parent.width
-            height: Style.space(22)
-
-            Text {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.headline
-              color: root.ink
-              textFormat: Text.PlainText
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
+            title: "Omatop"
+            meta: root.headline
+            foreground: root.ink
+            fontFamily: root.fontFamily
+            iconComponent: Component {
+              ChipIcon {
+                iconSize: Style.font.display
+                tint: heroItem.omatop.running ? heroItem.omatop.pressureColor : heroItem.omatop.ink
+                opacity: heroItem.omatop.running ? 1 : 0.6
+                Behavior on tint {
+                  enabled: heroItem.omatop.animated
+                  ColorAnimation { duration: 300 }
+                }
+              }
             }
-
-            // The Pressure chip: a tinted wash of the level's own hue, so a
-            // calm machine keeps the theme's foreground and a loaded one
-            // warms without shouting.
-            Rectangle {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              height: Style.space(18)
-              width: Style.space(7) + pressureDot.width + Style.space(6)
-                + Math.ceil(pressureLabel.implicitWidth) + Style.space(8)
-              radius: height / 2
-              color: Util.alpha(root.pressureColor, 0.12)
-              border.width: 1
-              border.color: Util.alpha(root.pressureColor, 0.35)
-
-              Behavior on color {
-                enabled: root.animated
-                ColorAnimation { duration: 300 }
-              }
-              Behavior on border.color {
-                enabled: root.animated
-                ColorAnimation { duration: 300 }
-              }
-
+            trailingControl: Component {
+              // The Pressure chip: a tinted wash of the level's own hue, so a
+              // calm machine keeps the theme's foreground and a loaded one
+              // warms without shouting.
               Rectangle {
-                id: pressureDot
-                anchors.left: parent.left
-                anchors.leftMargin: Style.space(7)
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(6)
-                height: width
-                radius: width / 2
-                color: root.pressureColor
+                id: chip
+                readonly property var omatop: heroItem.omatop
+                visible: omatop.running
+                height: Style.space(18)
+                width: visible
+                  ? Style.space(7) + pressureDot.width + Style.space(6)
+                    + Math.ceil(pressureLabel.implicitWidth) + Style.space(8)
+                  : 0
+                radius: height / 2
+                color: Util.alpha(omatop.pressureColor, 0.12)
+                border.width: 1
+                border.color: Util.alpha(omatop.pressureColor, 0.35)
 
                 Behavior on color {
-                  enabled: root.animated
+                  enabled: chip.omatop.animated
                   ColorAnimation { duration: 300 }
                 }
-              }
-
-              Text {
-                id: pressureLabel
-                anchors.left: pressureDot.right
-                anchors.leftMargin: Style.space(6)
-                anchors.verticalCenter: parent.verticalCenter
-                text: Model.pressureLabel(root.pressureLevel)
-                color: root.pressureColor
-                textFormat: Text.PlainText
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                font.letterSpacing: 1.2
-                font.capitalization: Font.AllUppercase
-
-                Behavior on color {
-                  enabled: root.animated
+                Behavior on border.color {
+                  enabled: chip.omatop.animated
                   ColorAnimation { duration: 300 }
+                }
+
+                Rectangle {
+                  id: pressureDot
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(7)
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(6)
+                  height: width
+                  radius: width / 2
+                  color: chip.omatop.pressureColor
+
+                  Behavior on color {
+                    enabled: chip.omatop.animated
+                    ColorAnimation { duration: 300 }
+                  }
+                }
+
+                Text {
+                  id: pressureLabel
+                  anchors.left: pressureDot.right
+                  anchors.leftMargin: Style.space(6)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: Model.pressureLabel(chip.omatop.pressureLevel)
+                  color: chip.omatop.pressureColor
+                  textFormat: Text.PlainText
+                  font.family: chip.omatop.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1.2
+                  font.capitalization: Font.AllUppercase
+
+                  Behavior on color {
+                    enabled: chip.omatop.animated
+                    ColorAnimation { duration: 300 }
+                  }
                 }
               }
             }
-          }
-
-          // Why the machine is unhappy, in the sampler's own words.
-          Text {
-            width: parent.width
-            horizontalAlignment: Text.AlignRight
-            visible: root.running && root.pressureLevel !== "calm" && root.pressureReason !== ""
-            text: root.pressureReason
-            elide: Text.ElideRight
-            color: root.dim
-            textFormat: Text.PlainText
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
           }
         }
+
+        PanelSeparator { width: parent.width; foreground: root.ink }
 
         // ------------------------------------------------------- vitals
 
@@ -376,7 +396,7 @@ Panel {
             label: "memory"
             maxValue: 100
             samples: root.memSeries
-            valueText: root.memNow >= 0 ? Model.bytes(root.memUsed) : "--"
+            valueText: root.memNow >= 0 ? Model.pct(root.memNow, 0) + "  " + Model.bytes(root.memUsed) : "--"
             formatter: function(x) { return Model.pct(x) }
             axisFormatter: function(x) { return x <= 0 ? "0" : root.memTotal > 0 ? Model.bytes(x / 100 * root.memTotal) : Model.pct(x) }
             ink: root.ink
@@ -519,6 +539,8 @@ Panel {
           spacing: Style.spacing.sm
           visible: root.running && root.pinnedRows.length > 0
 
+          PanelSeparator { width: parent.width; foreground: root.ink }
+
           PanelSectionHeader {
             text: "Pinned"
             foreground: root.ink
@@ -541,11 +563,10 @@ Panel {
           width: parent.width
           height: Style.space(28)
 
-          Rectangle {
+          PanelSeparator {
             anchors.top: parent.top
             width: parent.width
-            height: 1
-            color: root.hairline
+            foreground: root.ink
           }
 
           Row {
