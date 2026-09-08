@@ -35,6 +35,7 @@ Item {
   property color onScrimDim: Qt.rgba(1, 1, 1, 0.55)
   property string fontFamily: Style.font.family
   property string sublabel: ""         // small caption under the readout (e.g. "of 15.0G")
+  property color sublabelColor: onScrimDim
   property real readoutOpacity: 1      // parent fades the digits in as a reading lands
 
   readonly property real dialStart: 135
@@ -198,7 +199,7 @@ Item {
     Text {
       anchors.horizontalCenter: parent.horizontalCenter
       text: dial.sublabel !== "" ? dial.sublabel : dial.unit
-      color: dial.onScrimDim
+      color: dial.sublabelColor
       textFormat: Text.PlainText
       font.family: dial.fontFamily
       font.pixelSize: Style.font.caption

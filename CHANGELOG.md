@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+- Redesigned the quick view around the overlay’s instrument cluster: CPU, memory and GPU gauges, temperatures beside their readings, and compact CPU/memory history on a shared two-minute axis. Per-core activity and pinned Apps remain.
+- Added disk read/write throughput, VRAM usage, swap usage and fan speed. Network and power now have their own readable cells; battery status includes charging and still appears at zero watts or zero percent. Unavailable sensors stay hidden.
+- The dropdown steps at the sampler cadence, with no gauge sweeps, continuous motion clock or per-core colour animations. Supporting-stat delegates persist across samples instead of being rebuilt on each update. The overlay retains its existing motion settings.
+- Scroll with the wheel, arrow keys or j/k when the panel exceeds the available screen height. Open the cluster with a visible mouse shortcut, o or Enter.
+- Temperature warnings use the theme’s urgent colour, matching the overlay even when the bar’s active colour is neutral.
+- Updated quick-view preview and performance notes.
+
 ## 1.1.8
 
 - The dropdown gets the same header as the other plugins: the chip mark, the name, a small-caps status line (culprit under load, uptime when calm, sampler state before that), and the Pressure chip on the trailing edge, over a separator. The mark is now one shared component, so the bar and the dropdown can never drift apart.

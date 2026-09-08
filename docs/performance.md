@@ -624,3 +624,31 @@ predicts, so gliding eighty meters on the clock and rebuilding the list every
 fifth tick instead of every tick cost nothing measurable either way: the
 frame rate is still the whole price. `motionHz: 20` returns to the ~7% of the
 second pass.
+
+## Dropdown redesign: v1.2.0 (2026-09-08)
+
+Measured with `docs/measure.py` on the active 5120×2880 display at scale 2,
+with the sampler refreshing every second. These are whole-shell and
+whole-device readings on a live desktop, not isolated plugin costs.
+
+| Dropdown | Window | Shell CPU, % of one core | Sampler CPU | GPU mean / max |
+|---|---|---|---|---|
+| v1.1.8 | 25 s | 1.48% | 0.84% | 27.50 / 29 |
+| v1.2.0, settled | 30 s | 1.50% | 0.73% | 25.87 / 28 |
+
+The redesign retains approximately the same measured shell CPU cost while
+adding three gauges and more supporting readings. The GPU difference is too
+small, and the desktop too uncontrolled, to claim a GPU improvement. An
+additional measurement started immediately after restarting the shell caught
+a 45%-of-one-core startup second; it is excluded from the steady-state table.
+
+The dropdown has no continuous animation clock, ignition sweep, or per-core
+colour animations. Gauges snap at the sample cadence. Only two compact
+history paths remain, and the supporting-stat Repeater uses fixed keys so
+it retains delegates across ticks. Vitals, history and Apps disconnect on
+close. The overlay’s animation policy is unchanged.
+
+Runtime checks also exercised unavailable GPU/VRAM/swap/fan data, a battery
+at 0% and zero watts, missing/build-failed sampler states, repeated opens and
+closes, closed-state data gating, constrained-height keyboard scrolling, and
+the keyboard route into the overlay.

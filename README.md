@@ -2,7 +2,7 @@
 
 A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. Quiet glyph in the bar, clean stats on click, and a full-screen instrument cluster on right-click or `Super+Ctrl+M`. Vim keys everywhere.
 
-![Omatop: pressure chip in the bar, quick view dropdown, full dial cluster](preview.png)
+![Omatop 1.2: compact instrument cluster in the bar dropdown](preview.png)
 
 Thirty seconds of the cluster working for a living: the ignition sweep, focusing an App so the dials re-point and its timelines slide into the ledger, the port search, the core row lighting up under real load, and the whole surface recolouring live through Tokyo Night, Catppuccin Latte and Gruvbox. [Watch the demo](assets/demo.mp4).
 
@@ -10,7 +10,7 @@ Thirty seconds of the cluster working for a living: the ignition sweep, focusing
 
 **In the bar.** A small chip mark. It wears your theme foreground while the machine is calm, then shades amber, orange and red as the kernel reports real pressure. It never moves; the colour is the whole signal. Left click opens the quick view, right click opens the cluster.
 
-**The quick view.** CPU, memory, GPU and temperature as glowing timelines, one stable net and power line, and the Apps you pinned. Nothing in it reorders. Press `o` to jump to the cluster.
+**The quick view.** The cluster in miniature: CPU, memory and GPU gauges, CPU/GPU temperatures beside the readings, per-core activity, and compact CPU/memory history on a two-minute axis. A supporting grid shows network and disk throughput, VRAM, swap, power and fan speed when available, followed by the Apps you pinned. Readings step once per sample without continuous animation. Click **Open cluster**, or press `o` or Enter, to jump to the overlay. Long panels scroll with the wheel, arrow keys or `j`/`k`.
 
 **The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then settle into a reading every five seconds and glide to the next: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared two minute axis, scrolling every second, so a spike in one lines up with a spike in another. Under the CPU timeline, one block per core on the same calm, amber, red ramp, so a single pinned core shows as one hot block while the total still reads 4%. The quick view has the same row. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
 
@@ -87,7 +87,7 @@ Everything is on the keyboard and the grammar is vim's. Counts work where they m
 | `?` | help |
 | `q` `esc` | close (`esc` first clears a filter, focus or scrub if there is one) |
 
-Quick view (the bar dropdown): `o` opens the cluster, `esc` closes.
+Quick view (the bar dropdown): `o` or Enter opens the cluster, `esc` closes, `j`/`k` or Up/Down scrolls.
 
 ## How it works
 
@@ -123,7 +123,7 @@ That edits `shell.json` and reloads the shell config; the plugin picks the chang
 
 **Motion rate.** With the cluster open the needles, arcs, meters and timelines glide instead of stepping. One shared clock drives all of it; every frame the overlay draws costs the same (about 3.5 ms of CPU on a 5K display, whatever moves in it), so the frame rate is the whole price of that motion: 30 fps costs about 10% of one core while the cluster is open, 20 fps about 7%, 12 fps about 5%, stepping once per reading about 3.5%. The rate is picked for the machine: 30 fps with sixteen or more cores, 20 with eight to fifteen, 12 with four to seven, stepping below that, and it drops to stepping whenever the kernel reports heavy or critical Pressure, since that is exactly when there is no CPU to spare. The footer says which is in effect. `motionHz` is a ceiling on all of that; `reducedMotion` turns it off along with every other animation.
 
-Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`, harness in `docs/measure.py`): with nothing open the plugin adds about half a percent of one core and 10 MiB; the sampler sends a ~3 KB tick each refresh while nothing is open (vitals, pressure and slim offender rows for the averages, with the fd scan paused) and only sends the full App list while a surface is looking at it. The quick view costs under 1% of one core. The cluster costs about 7% of one core at 20 fps and about 10% at the default 30, in every mode: it used to triple to 11% while you typed a search or while the machine was under critical pressure, because two looping animations pinned the window to the display's refresh rate.
+Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`, harness in `docs/measure.py`): with nothing open the plugin adds about half a percent of one core and 10 MiB; the sampler sends a ~3 KB tick each refresh while nothing is open (vitals, pressure and slim offender rows for the averages, with the fd scan paused) and only sends the full App list while a surface is looking at it. Earlier quick-view measurements were under 1% of one core; the [v1.2.0 comparison](docs/performance.md#dropdown-redesign-v120-2026-09-08) records about 1.5% for the whole shell with either dropdown. The cluster costs about 7% of one core at 20 fps and about 10% at the default 30, in every mode: it used to triple to 11% while you typed a search or while the machine was under critical pressure, because two looping animations pinned the window to the display's refresh rate.
 
 ## License
 
