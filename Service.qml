@@ -21,7 +21,9 @@ Item {
     return value === undefined || value === null ? fallback : value
   }
   readonly property real refreshSeconds: Util.clamp(Number(widgetSetting("refreshSeconds", 1)) || 1, 1, 30)
-  readonly property real rate: 1 / refreshSeconds
+  // A visible quick view samples at 2 Hz; closing restores the configured rate.
+  property int livePanels: 0
+  readonly property real rate: livePanels > 0 ? 2 : 1 / refreshSeconds
   readonly property bool reducedMotion: widgetSetting("reducedMotion", false) === true
   // Overlay reading cadence. Samples keep arriving at `rate` and feed the
   // timelines; the overlay's dials, readouts and list take a reading every
@@ -239,6 +241,9 @@ Item {
 
   function pushRate() { send("rate " + root.rate) }
   onRateChanged: pushRate()
+
+  function panelOpened() { root.livePanels++; root.surfaceOpened() }
+  function panelClosed() { root.livePanels = Math.max(0, root.livePanels - 1); root.surfaceClosed() }
 
   function surfaceOpened() { root.openSurfaces = root.openSurfaces + 1; root.repickOffenders() }
   function surfaceClosed() { root.openSurfaces = Math.max(0, root.openSurfaces - 1) }

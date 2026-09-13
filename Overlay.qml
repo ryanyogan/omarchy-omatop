@@ -1017,11 +1017,11 @@ Item {
               x: cpuStrip.plotX
               width: cpuStrip.plotWidth
               height: ledger.axisHeight
-              readonly property string span: Model.span(119 * root.tickMs)
-              readonly property string half: Model.span(60 * root.tickMs)
+              readonly property string span: "119 samples"
+              readonly property string half: "60 samples"
               Text { x: 0; y: Style.space(2); text: "-" + parent.span; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
               Text { x: parent.width / 2 - width / 2; y: Style.space(2); text: "-" + parent.half; color: root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-              Text { anchors.right: parent.right; y: Style.space(2); text: root.scrub >= 0 ? "-" + Model.span((119 - root.scrub) * root.tickMs) : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+              Text { anchors.right: parent.right; y: Style.space(2); text: root.scrub >= 0 ? "-" + (119 - root.scrub) + " samples" : "now"; color: root.scrub >= 0 ? root.ink : root.faint; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
           }
 

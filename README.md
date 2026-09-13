@@ -2,7 +2,9 @@
 
 A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. Quiet glyph in the bar, clean stats on click, and a full-screen instrument cluster on right-click or `Super+Ctrl+M`. Vim keys everywhere.
 
-![Omatop 1.2: compact instrument cluster in the bar dropdown](preview.png)
+![Omatop 1.2.1: live dot-matrix quick view on an empty workspace](preview.png)
+
+[Quick-view detail](docs/dropdown-preview.png) · [Full monitor](docs/overlay-preview.png)
 
 Thirty seconds of the cluster working for a living: the ignition sweep, focusing an App so the dials re-point and its timelines slide into the ledger, the port search, the core row lighting up under real load, and the whole surface recolouring live through Tokyo Night, Catppuccin Latte and Gruvbox. [Watch the demo](assets/demo.mp4).
 
@@ -10,9 +12,9 @@ Thirty seconds of the cluster working for a living: the ignition sweep, focusing
 
 **In the bar.** A small chip mark. It wears your theme foreground while the machine is calm, then shades amber, orange and red as the kernel reports real pressure. It never moves; the colour is the whole signal. Left click opens the quick view, right click opens the cluster.
 
-**The quick view.** The cluster in miniature: CPU, memory and GPU gauges, CPU/GPU temperatures beside the readings, per-core activity, and compact CPU/memory history on a two-minute axis. A supporting grid shows network and disk throughput, VRAM, swap, power and fan speed when available, followed by the Apps you pinned. Readings step once per sample without continuous animation. Click **Open cluster**, or press `o` or Enter, to jump to the overlay. Long panels scroll with the wheel, arrow keys or `j`/`k`.
+**The quick view.** A compact dot-matrix monitor: large CPU, memory and GPU readings beside recent activity, CPU/GPU temperatures, and a per-core equalizer. Lit cells fade in and out over 180 ms on one shared 25 Hz clock; reduced motion makes them step. The dropdown samples every half second while open, keeping all readings current without rebuilding the supporting rows. Closing restores `refreshSeconds`. History columns preserve peaks across the last 120 samples (the time span varies with sampling cadence). Network download/upload, disk read/write, swap used/total and fan speed appear when available, with explicit byte units. Click **Full monitor**, or press `o` or Enter, to jump to the overlay. Long panels scroll with the wheel, arrow keys or `j`/`k`.
 
-**The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then settle into a reading every five seconds and glide to the next: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared two minute axis, scrolling every second, so a spike in one lines up with a spike in another. Under the CPU timeline, one block per core on the same calm, amber, red ramp, so a single pinned core shows as one hot block while the total still reads 4%. The quick view has the same row. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
+**The cluster.** No card, just instruments on a dark scrim. Four dials sweep on open like a car cluster, then settle into a reading every five seconds and glide to the next: CPU, memory, GPU, temperature. Under them, a trip computer row for net, disk, power, load and uptime. Below that the ledger: every vital on one shared 120-sample axis, advancing with each sample, so a spike in one lines up with a spike in another. Under the CPU timeline, one block per core on the same calm, amber, red ramp, so a single pinned core shows as one hot block while the total still reads 4%. The quick view shows core activity as an equalizer. Hover or press `,` `.` to scrub back in time and read every strip at that instant.
 
 **Offenders, without the jumping.** The panel you actually read: the top Apps by 30 second average CPU and memory, listed alphabetically with themed icons and meter bars. Membership is re-picked at most every 30 seconds, so the set is stable and the numbers move inside it. No row ever leaps to the top because something sneezed.
 
@@ -20,7 +22,7 @@ Thirty seconds of the cluster working for a living: the ignition sweep, focusing
 
 **Recent, on top, never moving.** Things you just started from a terminal (`npm run dev`, `cargo build`, `docker compose up`) and recently launched apps sit in a strip at the top, newest first. They never get re-sorted by usage, and each shows its listening ports. Type `/3000` to find whatever is on port 3000, press `x` to stop it. That is the whole workflow. 🎯
 
-**Actions.** `x` stops (asks first). `ss` pauses and resumes, using the cgroup freezer so the whole app freezes atomically. `r` restarts a service. `p` pins an App so it shows in the quick view and survives restarts. The Desktop bucket (compositor, shell, audio) is read-only, on purpose.
+**Actions.** `x` stops (asks first). `ss` pauses and resumes, using the cgroup freezer so the whole app freezes atomically. `r` restarts a service. `p` pins an App in the full monitor and survives restarts. The Desktop bucket (compositor, shell, audio) is read-only, on purpose.
 
 **Pressure.** Calm, under load, heavy load, or critical, computed from the kernel's pressure stall information (PSI) and swap-in rate, not from a CPU percentage. Temperature only counts once the CPU is actually in its throttle zone. The glyph, the quick view and the cluster all read the same value.
 
@@ -33,6 +35,16 @@ omarchy plugin add https://github.com/ryanyogan/omarchy-omatop --enable
 ```
 
 Add the **Omatop** widget to your bar (System category). The first time you open the quick view or the cluster, a card explains that Omatop needs its system monitor, a small Rust helper that reads the machine, and offers **Build now** and **Learn more** (what it is, what it reads, why it exists, what it costs). Click Build now or press `b`; it takes about a minute and only happens once. Omarchy ships `cargo`, so there is nothing else to install. Nothing is built or run at install time.
+
+To update to v1.2.1, pull the plugin and rebuild the sampler for the timing fix:
+
+```bash
+omarchy plugin update ryanyogan.omatop
+cargo build --release --manifest-path "$HOME/.config/omarchy/plugins/ryanyogan.omatop/sampler/Cargo.toml"
+omarchy restart shell
+```
+
+Remove it with `omarchy plugin remove ryanyogan.omatop`. Saved history and pins remain in `~/.local/state/omatop/`; remove that directory too if you want to clear them.
 
 Optional hotkey, in `~/.config/hypr/bindings.lua`:
 
@@ -79,7 +91,7 @@ Everything is on the keyboard and the grammar is vim's. Counts work where they m
 
 | | |
 |---|---|
-| `p` | pin the App: it shows in the quick view and survives restarts |
+| `p` | pin the App in the full monitor; pins survive restarts |
 | `ss` | pause or resume (cgroup freezer, the whole App at once) |
 | `x` `delete` | stop, after a confirmation |
 | `r` | restart a Service |
@@ -113,17 +125,19 @@ That edits `shell.json` and reloads the shell config; the plugin picks the chang
 
 | Key | Default | Range | What it does |
 |---|---|---|---|
-| `refreshSeconds` | `1` | 1 to 30 | How often the sampler takes a sample. Feeds the timelines and the bar glyph. |
+| `refreshSeconds` | `1` | 1 to 30 | Sampling interval outside the quick view. The open dropdown uses 0.5 seconds. Feeds the timelines and the bar glyph. |
 | `overlaySeconds` | `5` | 1 to 10 | How often the cluster takes a reading: dials, trip computer, pressure, the list and its meters. |
 | `motionHz` | `30` | 0 to 60 | Ceiling on the cluster's motion rate. `0` steps once per reading. |
 | `reducedMotion` | `false` | | Turns off every animation. |
 | `showPercent` | `false` | | Shows the CPU percentage next to the bar glyph. |
 
-**Two cadences.** The sampler takes a sample every second (`refreshSeconds`) and that feeds the timelines: the ledger keeps its two minute axis and scrolls a step every second, from the very first sample. The rest of the cluster takes a reading every five seconds (`overlaySeconds`): dials, trip computer, pressure line, the list and its meters all describe one instant, and glide to the next one. Nothing in the overlay jumps once a second. A faint accent line under the trip computer fills as the next reading approaches, and the footer says the cadence. Stopping, pausing or restarting something shows its consequence on the next sample rather than the next reading.
+**Two cadences.** The sampler takes a sample every second (`refreshSeconds`), or every half second while the quick view is open, and that feeds the timelines: the ledger keeps 120 samples and scrolls a step per sample, from the very first sample. The rest of the cluster takes a reading every five seconds (`overlaySeconds`): dials, trip computer, pressure line, the list and its meters all describe one instant, and glide to the next one. Nothing in the overlay jumps once a second. A faint accent line under the trip computer fills as the next reading approaches, and the footer says the cadence. Stopping, pausing or restarting something shows its consequence on the next sample rather than the next reading.
 
 **Motion rate.** With the cluster open the needles, arcs, meters and timelines glide instead of stepping. One shared clock drives all of it; every frame the overlay draws costs the same (about 3.5 ms of CPU on a 5K display, whatever moves in it), so the frame rate is the whole price of that motion: 30 fps costs about 10% of one core while the cluster is open, 20 fps about 7%, 12 fps about 5%, stepping once per reading about 3.5%. The rate is picked for the machine: 30 fps with sixteen or more cores, 20 with eight to fifteen, 12 with four to seven, stepping below that, and it drops to stepping whenever the kernel reports heavy or critical Pressure, since that is exactly when there is no CPU to spare. The footer says which is in effect. `motionHz` is a ceiling on all of that; `reducedMotion` turns it off along with every other animation.
 
 Measured on a Ryzen AI 9 HX 370 (see `docs/performance.md`, harness in `docs/measure.py`): with nothing open the plugin adds about half a percent of one core and 10 MiB; the sampler sends a ~3 KB tick each refresh while nothing is open (vitals, pressure and slim offender rows for the averages, with the fd scan paused) and only sends the full App list while a surface is looking at it. Earlier quick-view measurements were under 1% of one core; the [v1.2.0 comparison](docs/performance.md#dropdown-redesign-v120-2026-09-08) records about 1.5% for the whole shell with either dropdown. The cluster costs about 7% of one core at 20 fps and about 10% at the default 30, in every mode: it used to triple to 11% while you typed a search or while the machine was under critical pressure, because two looping animations pinned the window to the display's refresh rate.
+
+The v1.2.1 dropdown uses fixed dot geometry and one short-lived fade clock. On this 5K desktop, a short empty-workspace comparison measured 7.00% whole-device GPU busy with shared-clock fades versus 11.62% with the initial per-cell animation implementation. This is a comparison within the new design, not a claim of savings over v1.2.0. See the [GPU investigation](docs/gpu-investigation.md) for the desktop baseline, method and limits, and the [dropdown release review](docs/dropdown-review.md) for validation.
 
 ## License
 

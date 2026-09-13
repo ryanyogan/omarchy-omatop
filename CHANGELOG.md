@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1 — 2026-09-13
+
+- Replaced dropdown gauges and sparklines with clear CPU, memory and GPU readings, peak-preserving dot-matrix histories, and a per-core equalizer. Cells fade gently over 180 ms on one shared, short-lived 25 Hz clock; unchanged levels stay still and reduced motion disables fades.
+- All quick-view readings refresh every half second while open. Closing restores the configured sampling interval. Fixed a stale sampler deadline that could delay readings after opening during a slow interval.
+- Narrowed the dropdown, aligned margins and typography, and unified the Full monitor footer. Network download/upload, disk read/write, swap used/total and fan speed now have aligned rows with explicit units. Removed GPU memory, battery and pinned Apps from the dropdown; they remain available in the full monitor.
+- History axes use sample counts so mixed sampling intervals do not imply an inaccurate time span.
+- Added QML animation regression checks, a sampler timing regression, GPU investigation notes, and fresh screenshots captured on an empty workspace.
+
 ## 1.2.0
 
 - Redesigned the quick view around the overlay’s instrument cluster: CPU, memory and GPU gauges, temperatures beside their readings, and compact CPU/memory history on a shared two-minute axis. Per-core activity and pinned Apps remain.

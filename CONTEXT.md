@@ -32,7 +32,7 @@ whatever is on port 3000.
 
 **Pinned**
 An App the user chose to watch. Pinned Apps appear in their own strip in the
-overlay and in the bar dropdown, and survive reopen and shell restart.
+overlay, and survive reopen and shell restart.
 Identity is the App's name, not its PID.
 
 **Bucket**
@@ -53,8 +53,9 @@ power draw, fan speed.
 
 **History**
 The last 120 samples of every Vital and of every App's CPU, memory and GPU
-(ten minutes at the default five second refresh), kept whether or not the
-overlay is open. Opening the overlay after a spike shows the spike.
+(roughly two minutes at the default one-second refresh), kept whether or not
+the overlay is open. The quick view samples every half second while open, so
+a retained History can span mixed cadences; axes use sample counts. Opening the overlay after a spike shows the spike.
 
 **Pressure**
 The derived state of the machine: Calm, Busy, or Critical. Computed from the

@@ -291,3 +291,18 @@ fn lean_ticks_carry_slim_offender_rows() {
         );
     }
 }
+
+#[test]
+fn opening_a_live_view_resets_the_next_sample_deadline() {
+    let mut s = Sampler::start();
+    s.tick();
+    s.send("rate 0.1\nnow");
+    s.tick();
+    s.send("rate 2\nnow");
+    s.tick(); // The immediate reading must not retain the old ten-second deadline.
+    let line = s.rx.recv_timeout(Duration::from_secs(2))
+        .expect("live cadence begins immediately after the requested reading");
+    let tick: Value = serde_json::from_str(&line).unwrap();
+    let interval = tick["interval"].as_f64().unwrap();
+    assert!((0.25..1.5).contains(&interval), "expected a half-second tick, got {interval}");
+}

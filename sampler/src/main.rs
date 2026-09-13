@@ -565,9 +565,16 @@ fn main() {
             }
             match rx.recv_timeout(next - now) {
                 Ok(line) => {
+                    let old_period = s.period();
                     s.command(&line);
+                    if s.period() != old_period {
+                        next = Instant::now() + s.period();
+                    }
                     if s.tick_now {
                         s.tick_now = false;
+                        // An immediate reading starts a new interval. Keeping
+                        // the old deadline would stall the newly opened view.
+                        next = Instant::now();
                         break;
                     }
                 }
@@ -589,6 +596,9 @@ fn main() {
         // first tick already honours them.
         while let Ok(line) = rx.try_recv() {
             s.command(&line);
+        }
+        if s.tick_now {
+            next = Instant::now();
         }
         s.tick_now = false;
         s.tick(&mut out);
