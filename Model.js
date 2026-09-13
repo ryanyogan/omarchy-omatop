@@ -221,3 +221,14 @@ function last(arr, fallback) {
   if (!arr || !arr.length) return fallback
   return arr[arr.length - 1]
 }
+
+// Legacy samplers have no version field. Compare numeric components so 1.10
+// is newer than 1.2; a newer helper does not get a downgrade notification.
+function olderSampler(installed, required) {
+  if (!/^\d+\.\d+\.\d+$/.test(installed)) return true
+  var a = installed.split(".").map(Number), b = required.split(".").map(Number)
+  for (var i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i]
+  }
+  return false
+}

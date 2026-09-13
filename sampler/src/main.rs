@@ -77,6 +77,7 @@ struct EventOut {
 #[serde(rename_all = "camelCase")]
 struct Tick<'a> {
     v: u32,
+    sampler_version: &'static str,
     t: u64,
     interval: f64,
     ncpu: usize,
@@ -488,6 +489,7 @@ impl Sampler {
 
         let tick = Tick {
             v: PROTOCOL_VERSION,
+            sampler_version: env!("CARGO_PKG_VERSION"),
             t: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)

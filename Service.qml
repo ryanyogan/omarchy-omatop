@@ -52,6 +52,14 @@ Item {
 
   // "missing" (binary absent), "building", "buildFailed", "starting", "running", "crashed"
   property string samplerState: "starting"
+  // Bump only when a sampler change requires users to rebuild the helper.
+  readonly property string requiredSamplerVersion: "1.2.2"
+  property string samplerVersion: ""
+  property bool samplerVersionSeen: false
+  readonly property bool samplerUpdateAvailable: samplerVersionSeen && Model.olderSampler(samplerVersion, requiredSamplerVersion)
+  readonly property bool canBuildSampler: samplerState === "missing" || samplerState === "buildFailed"
+    || (samplerState === "running" && samplerUpdateAvailable)
+  property bool buildAfterStop: false
   property string buildLog: ""
   property int restartAttempts: 0
 
@@ -167,6 +175,10 @@ Item {
         restartTimer.restart()
       }
       root.sampler_intentionalStop = false
+      if (root.buildAfterStop) {
+        root.buildAfterStop = false
+        builder.running = true
+      }
     }
   }
   property bool sampler_intentionalStop: false
@@ -195,7 +207,7 @@ Item {
   }
 
   function startSampler() {
-    if (sampler.running) return
+    if (sampler.running || builder.running || root.buildAfterStop) return
     binaryProbe.running = true
   }
 
@@ -209,7 +221,7 @@ Item {
   // installer never runs code, so this is the sanctioned first-run path.
   Process {
     id: builder
-    command: ["bash", "-lc", "cd " + Util.shellQuote(root.pluginDir + "/sampler") + " && cargo build --release 2>&1"]
+    command: ["cargo", "build", "--release", "--manifest-path", root.pluginDir + "/sampler/Cargo.toml"]
     running: false
     stdout: SplitParser {
       splitMarker: "\n"
@@ -217,9 +229,15 @@ Item {
         root.buildLog = (root.buildLog + line + "\n").slice(-4000)
       }
     }
+    stderr: SplitParser {
+      splitMarker: "\n"
+      onRead: function(line) { root.buildLog = (root.buildLog + line + "\n").slice(-4000) }
+    }
     onExited: function(code) {
       if (code === 0) {
         root.buildLog = ""
+        root.samplerVersionSeen = false
+        root.samplerState = "starting"
         root.startSampler()
       } else {
         root.samplerState = "buildFailed"
@@ -228,10 +246,18 @@ Item {
   }
 
   function buildSampler() {
-    if (builder.running) return
+    if (!root.canBuildSampler || builder.running || root.buildAfterStop) return
+    restartTimer.stop()
     root.buildLog = ""
     root.samplerState = "building"
-    builder.running = true
+    // Wait for the old child to exit before compiling/restarting. Otherwise
+    // startSampler sees it still running and keeps the outdated process alive.
+    if (sampler.running) {
+      root.buildAfterStop = true
+      root.stopSampler()
+    } else {
+      builder.running = true
+    }
   }
 
   function send(line) {
@@ -264,8 +290,10 @@ Item {
     if (!line || line.length < 2) return
     var data
     try { data = JSON.parse(line) } catch (e) { console.warn("omatop: bad tick: " + e); return }
-    if (!data || data.v !== 1) return
+    if (!data || data.v !== 1 || root.samplerState === "building" || root.samplerState === "buildFailed") return
 
+    root.samplerVersion = typeof data.samplerVersion === "string" ? data.samplerVersion : ""
+    root.samplerVersionSeen = true
     root.samplerState = "running"
     root.vitals = data.vitals || null
     // Lean ticks omit history and apps; keep what we had rather than blanking.

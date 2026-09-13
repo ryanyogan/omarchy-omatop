@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2 — 2026-09-13
+
+- Added a persistent sampler update notice in the quick view and full monitor, plus a bar tooltip reminder. Click Update or press b to rebuild and restart the helper. Current or newer samplers do not show the notice.
+- Sampler ticks now report their build version. Older binaries without this field are detected, so users upgrading from previous releases receive the prompt.
+- Builds stop the old sampler before compiling, restart it on success, and clear the notice after the updated helper reports in. Progress, build errors and retry remain visible; buffered old ticks cannot hide them, and duplicate update clicks cannot start concurrent builds.
+- Updated setup guidance, upgrade instructions, protocol documentation and empty-workspace screenshots. Added runtime regression coverage for version detection and the complete failure/retry/update lifecycle.
+
 ## 1.2.1 — 2026-09-13
 
 - Replaced dropdown gauges and sparklines with clear CPU, memory and GPU readings, peak-preserving dot-matrix histories, and a per-core equalizer. Cells fade gently over 180 ms on one shared, short-lived 25 Hz clock; unchanged levels stay still and reduced motion disables fades.

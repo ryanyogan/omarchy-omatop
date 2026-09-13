@@ -110,7 +110,7 @@ Panel {
   readonly property bool animated: false
   readonly property string samplerState: root.service ? String(root.service.samplerState || "starting") : "starting"
   readonly property bool running: samplerState === "running"
-  readonly property bool canBuild: samplerState === "missing" || samplerState === "buildFailed"
+  readonly property bool canBuild: !!(root.service && root.service.canBuildSampler)
 
   // Everything below reads through these snapshots, and they are empty while the
   // dropdown is closed, so a closed dropdown re-evaluates nothing on a tick.
@@ -343,6 +343,15 @@ Panel {
           }
 
           PanelSeparator { width: parent.width; foreground: root.ink }
+
+          SamplerNotice {
+            width: parent.width
+            visible: root.running && !!(root.service && root.service.samplerUpdateAvailable)
+            version: root.service ? root.service.requiredSamplerVersion : ""
+            ink: root.ink
+            fontFamily: root.fontFamily
+            onUpdate: root.buildSampler()
+          }
 
           // ------------------------------------------------------- vitals
 

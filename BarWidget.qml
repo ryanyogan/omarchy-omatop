@@ -61,6 +61,7 @@ BarWidget {
     if (root.samplerState === "buildFailed") return "Sampler build failed — open for the log"
     if (root.samplerState === "crashed") return "Sampler crashed, restarting"
     if (!root.samplerReady) return "Sampler starting…"
+    if (service && service.samplerUpdateAvailable) return "Sampler update available — open Omatop to update"
     var head = Model.pressureLabel(root.pressureLevel)
     if (root.cpuNow >= 0) head += " · CPU " + Model.pct(root.cpuNow, 0)
     if (root.memTotal > 0) head += " · MEM " + Model.pct(100 * root.memUsed / root.memTotal, 0)

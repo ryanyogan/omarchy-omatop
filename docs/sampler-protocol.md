@@ -10,7 +10,7 @@ Vocabulary is defined in `CONTEXT.md`. Field names below use it.
 
 | Command | Effect |
 |---|---|
-| `rate <hz>` | set tick rate (float, 0.03..10). Default 1; the shell sends 0.2 (every 5 s). |
+| `rate <hz>` | set tick rate (float, 0.03..10). Default 1; the shell uses the configured refresh interval, or 2 while the quick view is open. |
 | `detail <appId>` | include `detail` (that App's History) in every tick. `detail -` clears. |
 | `stop <appId>` | Stop: SIGTERM every Process, SIGKILL survivors after 5 s. For systemd units use `systemctl [--user] stop`. |
 | `pause <appId>` | Units: `systemctl [--user] freeze <unit>` (cgroup freezer, atomic). Jobs: SIGSTOP the process group. |
@@ -26,7 +26,8 @@ Actions reply on the next tick via `events: [{ "type": "action", "id", "action",
 
 ```jsonc
 {
-  "v": 1,                // protocol version
+  "v": 1,                                // protocol version
+  "samplerVersion": "1.2.2",              // helper build version
   "t": 1787502281123,    // unix ms
   "interval": 1.0,       // seconds since previous tick
   "ncpu": 24,
@@ -118,3 +119,21 @@ Actions reply on the next tick via `events: [{ "type": "action", "id", "action",
   reloaded at startup when less than 5 minutes old, so a shell plugin reload does not erase the last two minutes.
 - Never exit on a read error; skip that pid. No `panic = "abort"`: a panic in one tick must not take the sampler down. Processes may vanish mid-read.
 - Default tick rate 1 Hz; idle CPU cost target < 1 % of one core at 500 pids.
+
+## Sampler updates
+
+Every tick, including lean ticks, carries `samplerVersion` from the Rust
+package version (`sampler/Cargo.toml`). This is separate from wire protocol `v`,
+which remains 1. Pre-1.2.2 binaries omit the field and are treated as outdated.
+
+`Service.qml` declares `requiredSamplerVersion`; bump it alongside the Rust
+package version when a sampler change requires rebuilding. UI-only releases
+can keep the same requirement. Numeric version comparison accepts the required
+version or a newer one. No network polling is involved.
+
+The notice clears only after a running helper reports an acceptable version.
+The explicit update action stops the old child, builds with Cargo, and launches
+the rebuilt executable. Build failure remains retryable and buffered old ticks
+cannot overwrite building or failed state. `tests/check-sampler-update.sh`
+exercises these transitions against the actual service with isolated helper
+and compiler fixtures.

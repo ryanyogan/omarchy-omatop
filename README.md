@@ -2,9 +2,9 @@
 
 A system monitor for [Omarchy](https://omarchy.org) that shows you the culprit. Quiet glyph in the bar, clean stats on click, and a full-screen instrument cluster on right-click or `Super+Ctrl+M`. Vim keys everywhere.
 
-![Omatop 1.2.1: live dot-matrix quick view on an empty workspace](preview.png)
+![Omatop 1.2.2: sampler update notice in the live quick view](preview.png)
 
-[Quick-view detail](docs/dropdown-preview.png) · [Full monitor](docs/overlay-preview.png)
+[Sampler update notice](docs/sampler-update-preview.png) · [Quick-view detail](docs/dropdown-preview.png) · [Full monitor](docs/overlay-preview.png)
 
 Thirty seconds of the cluster working for a living: the ignition sweep, focusing an App so the dials re-point and its timelines slide into the ledger, the port search, the core row lighting up under real load, and the whole surface recolouring live through Tokyo Night, Catppuccin Latte and Gruvbox. [Watch the demo](assets/demo.mp4).
 
@@ -34,12 +34,13 @@ Thirty seconds of the cluster working for a living: the ignition sweep, focusing
 omarchy plugin add https://github.com/ryanyogan/omarchy-omatop --enable
 ```
 
-Add the **Omatop** widget to your bar (System category). The first time you open the quick view or the cluster, a card explains that Omatop needs its system monitor, a small Rust helper that reads the machine, and offers **Build now** and **Learn more** (what it is, what it reads, why it exists, what it costs). Click Build now or press `b`; it takes about a minute and only happens once. Omarchy ships `cargo`, so there is nothing else to install. Nothing is built or run at install time.
+Add the **Omatop** widget to your bar (System category). The first time you open the quick view or the cluster, a card explains that Omatop needs its system monitor, a small Rust helper that reads the machine, and offers **Build now** and **Learn more** (what it is, what it reads, why it exists, what it costs). Click Build now or press `b`; it takes about a minute. Omatop detects when a later plugin release needs a newer sampler and shows an **Update** notice in the quick view and full monitor. Omarchy ships `cargo`, so there is nothing else to install. Nothing is built or run at install time.
 
-To update to v1.2.1, pull the plugin and rebuild the sampler for the timing fix:
+To update, run `omarchy plugin update ryanyogan.omatop` and reopen Omatop. If **Sampler update available** appears, click **Update** or press `b`. Omatop rebuilds and restarts the helper, then clears the notice when the new sampler reports its version. Build progress and failures appear in the same view, with **Try again** if needed. Older samplers without a version field are detected too. If the shell still shows the old UI, run `omarchy restart shell`.
+
+Manual rebuild, if needed:
 
 ```bash
-omarchy plugin update ryanyogan.omatop
 cargo build --release --manifest-path "$HOME/.config/omarchy/plugins/ryanyogan.omatop/sampler/Cargo.toml"
 omarchy restart shell
 ```
@@ -95,11 +96,11 @@ Everything is on the keyboard and the grammar is vim's. Counts work where they m
 | `ss` | pause or resume (cgroup freezer, the whole App at once) |
 | `x` `delete` | stop, after a confirmation |
 | `r` | restart a Service |
-| `b` | build the sampler, when it is not built yet |
+| `b` | build, update or retry the sampler when prompted |
 | `?` | help |
 | `q` `esc` | close (`esc` first clears a filter, focus or scrub if there is one) |
 
-Quick view (the bar dropdown): `o` or Enter opens the cluster, `esc` closes, `j`/`k` or Up/Down scrolls.
+Quick view (the bar dropdown): `b` builds or updates the sampler when prompted, `o` or Enter opens the cluster, `esc` closes, `j`/`k` or Up/Down scrolls.
 
 ## How it works
 

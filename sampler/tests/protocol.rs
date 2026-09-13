@@ -71,6 +71,7 @@ fn every_tick_carries_the_documented_shape() {
         assert!(t.get(key).is_some(), "tick is missing `{key}`");
     }
     assert_eq!(t["v"], 1);
+    assert_eq!(t["samplerVersion"], env!("CARGO_PKG_VERSION"));
     assert!(t["t"].as_u64().unwrap() > 1_600_000_000_000, "t is unix milliseconds");
     assert!(t["ncpu"].as_u64().unwrap() >= 1);
     // `culprit` is nullable but must always be present so the reader can rely on it.

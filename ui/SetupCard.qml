@@ -37,7 +37,7 @@ Item {
     return "Starting the system monitor"
   }
   readonly property string body: {
-    if (state === "missing") return "Omatop reads the machine through a small helper, omatop-sampler, that is built once on this computer. It takes about a minute and never needs doing again."
+    if (state === "missing") return "Omatop reads the machine through a small helper, omatop-sampler, that is built once on this computer. It takes about a minute. Omatop will notify you when a plugin update needs a newer sampler."
     if (state === "building") return "cargo build --release is running. The instruments light up when it finishes."
     if (state === "buildFailed") return "Check that rustc and cargo are installed (Omarchy ships both), then try again."
     if (state === "crashed") return "It is being restarted. If this keeps happening, the log is in the shell's output."
@@ -45,10 +45,10 @@ Item {
   }
 
   readonly property var sections: [
-    ["What it is", "A small Rust program, shipped as source inside the plugin. It is compiled once on your machine with the cargo that Omarchy already provides. Nothing is downloaded, nothing is installed system-wide, and it does not need root."],
+    ["What it is", "A small Rust program, shipped as source inside the plugin. It is compiled on your machine with the cargo that Omarchy already provides. Cargo may download build dependencies. Nothing is installed system-wide, and it does not need root."],
     ["What it does", "Once a second it reads /proc, /sys and cgroup v2 and writes one line of JSON to the shell. It never opens a network connection. Stopping, pausing and restarting go through the service manager or a signal to your own processes, and Stop always asks first."],
     ["Why it is needed", "Walking /proc every second from QML would keep the shell busy. The sampler does that walk in about 8 ms of native code, so with nothing open Omatop costs the shell around 0.3% of one core."],
-    ["What it costs", "About 3.5 MiB of memory and 0.8% of one core at one sample a second, measured in docs/performance.md in the repository. The build takes about a minute, once."]
+    ["What it costs", "About 3.5 MiB of memory and 0.8% of one core at one sample a second, measured in docs/performance.md in the repository. A build takes about a minute; future sampler updates may need another build."]
   ]
 
   implicitHeight: card.implicitHeight

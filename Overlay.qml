@@ -607,7 +607,7 @@ Item {
     else if (t === "," ) scrub = scrub < 0 ? 118 : Math.max(0, scrub - takeCount(1))
     else if (t === ".") scrub = scrub < 0 ? -1 : Math.min(119, scrub + takeCount(1))
     else if (t === "0") scrub = -1
-    else if (t === "b") { if (service.samplerState === "missing" || service.samplerState === "buildFailed") service.buildSampler() }
+    else if (t === "b") { if (service.canBuildSampler) service.buildSampler() }
     else if (t === "a" && setup.visible) setup.about = !setup.about
     else handled = false
 
@@ -765,10 +765,23 @@ Item {
         }
       }
 
+      SamplerNotice {
+        id: samplerNotice
+        anchors.top: header.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width, Style.space(640))
+        visible: root.live && !!(root.service && root.service.samplerUpdateAvailable)
+        version: root.service ? root.service.requiredSamplerVersion : ""
+        ink: root.ink
+        fontFamily: root.fontFamily
+        onUpdate: root.service.buildSampler()
+      }
+
       // ---- Cluster: four dials. Pointed at the machine, or at the focused App. ----
       Item {
         id: cluster
-        anchors.top: header.bottom
+        anchors.top: samplerNotice.visible ? samplerNotice.bottom : header.bottom
         anchors.topMargin: Style.space(10)
         anchors.horizontalCenter: parent.horizontalCenter
         width: dials.width
