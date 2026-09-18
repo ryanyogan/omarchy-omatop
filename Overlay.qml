@@ -144,9 +144,9 @@ Item {
       var p = (now - root.phaseStartMs) / root.phaseDurationMs
       var g = (now - root.glideStartMs) / root.glideDurationMs
       var r = root.readingTakenMs > 0 ? (now - root.readingTakenMs) / root.readingMs : 1
-      root.phase = p >= 1 ? 1 : p
-      root.glidePhase = g >= 1 ? 1 : g
-      root.readingProgress = r >= 1 ? 1 : r
+      root.phase = Math.max(0, Math.min(1, p))
+      root.glidePhase = Math.max(0, Math.min(1, g))
+      root.readingProgress = Math.max(0, Math.min(1, r))
       if (p >= 1 && g >= 1 && r >= 1) stop()
     }
   }
