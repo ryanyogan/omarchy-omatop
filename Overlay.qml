@@ -267,7 +267,7 @@ Item {
       if (!root.opened) return
       keys.forceActiveFocus()
       list.positionViewAtBeginning()
-      cpuDial.ignite(); memDial.ignite(); gpuDial.ignite(); tempDial.ignite()
+      if (!service || service.ignitionSweep) { cpuDial.ignite(); memDial.ignite(); gpuDial.ignite(); tempDial.ignite() }
     })
   }
 
