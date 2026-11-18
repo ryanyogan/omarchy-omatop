@@ -160,6 +160,24 @@ fn pick_any(map: &HashMap<String, PathBuf>, file: &str) -> Option<PathBuf> {
     dirs.into_iter().find_map(|d| existing(d.join(file)))
 }
 
+/// Apple Silicon (macsmc_hwmon): the sensors carry SMC labels, not fixed indexes. First `tempN_input`
+/// (lowest N) whose label starts with `prefix`, e.g. "SoC die Tp" for the CPU cores.
+fn pick_label(map: &HashMap<String, PathBuf>, name: &str, prefix: &str) -> Option<PathBuf> {
+    let dir = map.get(name)?;
+    let mut hits: Vec<(u32, PathBuf)> = fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let file = e.file_name().into_string().ok()?;
+            let n: u32 = file.strip_prefix("temp")?.strip_suffix("_label")?.parse().ok()?;
+            let label = fs::read_to_string(e.path()).ok()?;
+            label.trim().starts_with(prefix).then(|| (n, dir.join(format!("temp{n}_input"))))
+        })
+        .collect();
+    hits.sort();
+    hits.into_iter().find_map(|(_, p)| existing(p))
+}
+
 fn first_glob(dir: &str, prefix: &str, tail: &str) -> Option<PathBuf> {
     let mut hits: Vec<PathBuf> = fs::read_dir(dir)
         .ok()?
@@ -183,9 +201,11 @@ impl Sensors {
         // CPU package temperature. k10temp's temp1 is Tctl on AMD; the Intel
         // and generic fallbacks follow.
         let cpu_temp = pick(&h, &["k10temp", "zenpower", "coretemp", "cpu_thermal"], "temp1_input")
-            .or_else(|| pick(&h, &["acpitz_0", "acpitz"], "temp1_input"));
+            .or_else(|| pick(&h, &["acpitz_0", "acpitz"], "temp1_input"))
+            .or_else(|| pick_label(&h, "macsmc_hwmon", "SoC die Tp"));
 
-        let gpu_temp = pick(&h, &["amdgpu", "nouveau", "i915", "radeon"], "temp1_input");
+        let gpu_temp = pick(&h, &["amdgpu", "nouveau", "i915", "radeon"], "temp1_input")
+            .or_else(|| pick_label(&h, "macsmc_hwmon", "SoC die Tg"));
 
         // acpi_fan first: on this chassis `cros_ec` also exposes fan1_input but
         // reports the same fan through a less direct path.
