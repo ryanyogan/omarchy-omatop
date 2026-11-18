@@ -25,6 +25,8 @@ Item {
   property int livePanels: 0
   readonly property real rate: livePanels > 0 ? 2 : 1 / refreshSeconds
   readonly property bool reducedMotion: widgetSetting("reducedMotion", false) === true
+  // The power-on sweep (full scale and back) each time the overlay opens; off shows the readings at once.
+  readonly property bool ignitionSweep: widgetSetting("ignitionSweep", true) !== false
   // Overlay reading cadence. Samples keep arriving at `rate` and feed the
   // timelines; the overlay's dials, readouts and list take a reading every
   // this many seconds and glide to it, so nothing there jumps once a second.
